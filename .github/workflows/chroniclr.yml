@@ -102,7 +102,7 @@ jobs:
         if: success()
         uses: peter-evans/create-pull-request@v6
         with:
-          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: '📚 Generate documentation for discussion #${{ steps.discussion.outputs.number }}'
           title: '📚 Update documentation from discussion #${{ steps.discussion.outputs.number }}'
           body: |
