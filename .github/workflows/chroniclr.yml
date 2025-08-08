@@ -20,6 +20,9 @@ permissions:
 jobs:
   generate-docs:
     runs-on: ubuntu-latest
+    concurrency:
+      group: chroniclr-docs-${{ github.event_name }}-${{ github.event.discussion.number || github.event.inputs.discussion_number || 'manual' }}
+      cancel-in-progress: true
 
     steps:
       - name: Checkout repository
@@ -94,10 +97,12 @@ jobs:
           done
 
       - name: Create Pull Request
+        id: cpr
+        continue-on-error: true
         if: success()
-        uses: peter-evans/create-pull-request@v5
+        uses: peter-evans/create-pull-request@v6
         with:
-          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: '📚 Generate documentation for discussion #${{ steps.discussion.outputs.number }}'
           title: '📚 Update documentation from discussion #${{ steps.discussion.outputs.number }}'
           body: |
@@ -122,3 +127,22 @@ jobs:
             documentation
             automated
             chroniclr
+
+      - name: Summarize PR creation
+        if: always()
+        run: |
+          if [ "${{ steps.cpr.outcome }}" = "success" ]; then
+            {
+              echo "PR created or updated successfully."
+              echo
+              echo "Branch: docs/chroniclr-${{ steps.discussion.outputs.number }}"
+              echo "URL: ${{ steps.cpr.outputs.pull-request-url }}"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "GitHub Actions could not create a PR (policy or permissions)."
+              echo
+              echo "Create it manually:"
+              echo "https://github.com/${{ github.repository }}/pull/new/docs/chroniclr-${{ steps.discussion.outputs.number }}"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
