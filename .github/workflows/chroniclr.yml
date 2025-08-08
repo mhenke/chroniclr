@@ -35,14 +35,14 @@ jobs:
       
     - name: Setup Claude Code
       run: |
-        curl -fsSL https://api.anthropic.com/claude-code/install.sh | sh
-        echo "$HOME/.claude/bin" >> $GITHUB_PATH
+        curl -fsSL claude.ai/install.sh | bash
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
         
     - name: Configure Claude Code
       env:
-        CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+        ANTHROPIC_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
       run: |
-        claude-code auth login --api-key $CLAUDE_API_KEY
+        claude-code auth login --api-key $ANTHROPIC_API_KEY
         
     - name: Get discussion details
       id: discussion
@@ -88,7 +88,7 @@ jobs:
     - name: Generate documentation
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+        ANTHROPIC_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
         DISCUSSION_NUMBER: ${{ steps.discussion.outputs.number }}
         DISCUSSION_TITLE: ${{ steps.discussion.outputs.title }}
         DISCUSSION_BODY: ${{ steps.discussion.outputs.body }}
