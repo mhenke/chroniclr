@@ -243,6 +243,12 @@ Key areas to focus on when processing comments:
 - Concerns raised and mitigation strategies
 - Alternative approaches and recommendations
 
+CRITICAL: For action items, use this specific format for GitHub issue creation:
+- [ ] @username: Task description (Due: Aug 10)
+- [ ] @assignee: Another task description (Due: Aug 15)
+
+Ensure all action items follow this format exactly so they can be automatically converted to GitHub issues with proper assignments and due dates.
+
 Generate the comprehensive ${docType} document now:
 `;
 

@@ -7,7 +7,8 @@
     "validate-discussion": "node src/utils/validate-discussion.js",
     "process-labels": "node src/utils/process-labels.js",
     "setup-env": "node src/utils/setup-env.js",
-    "generate-document": "node src/generators/ai-document-generator.js"
+    "generate-document": "node src/generators/ai-document-generator.js",
+    "create-action-items": "node src/utils/issue-creator.js"
   },
   "keywords": [
     "documentation",

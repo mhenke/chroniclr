@@ -145,6 +145,18 @@ jobs:
             DOC_TYPE=$doc_type npm run generate-document
           done
 
+      - name: Create GitHub issues for action items
+        id: action-items
+        if: success()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DISCUSSION_NUMBER: ${{ steps.discussion.outputs.number }}
+          DISCUSSION_TITLE: ${{ steps.discussion.outputs.title }}
+          DISCUSSION_BODY: ${{ steps.discussion.outputs.full_content }}
+          DISCUSSION_AUTHOR: ${{ steps.discussion.outputs.author }}
+          DISCUSSION_URL: ${{ steps.discussion.outputs.url }}
+        run: npm run create-action-items
+
       - name: Ensure labels exist
         if: success()
         uses: actions/github-script@v7
@@ -205,11 +217,17 @@ jobs:
             **Discussion:** [${{ steps.discussion.outputs.title }}](${{ steps.discussion.outputs.url }})
             **Author:** @${{ steps.discussion.outputs.author }}
             **Generated Documents:** ${{ steps.doc-types.outputs.document_types }}
+            **Comments Processed:** ${{ steps.discussion.outputs.comments_count }}
+            **Action Items Created:** ${{ steps.action-items.outputs.issues_created || 0 }} GitHub issues
 
             ### Changes
-            - Generated documentation based on discussion content
-            - Applied appropriate templates for document types
-            - Extracted key information and action items
+            - Generated comprehensive documentation based on full discussion thread
+            - Applied appropriate templates for document types  
+            - Extracted key information, decisions, and stakeholder input
+            - Automatically created GitHub issues for action items with assignments
+
+            ### Action Items Processed
+            ${{ steps.action-items.outputs.message || 'No action items found in discussion' }}
 
             ---
             🤖 *This PR was automatically created by Chroniclr*
