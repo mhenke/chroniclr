@@ -81,10 +81,46 @@ Discussion labels determine which document types are generated:
 7. **PR Creation** opens pull request with all generated content and issue summaries
 
 ### 🤖 **AI-Powered Analysis**
-- **GitHub Models API**: Uses GPT-4o via GitHub's built-in AI service
+- **GitHub Models API**: Uses GPT-4o via GitHub's built-in AI service with intelligent rate limiting
 - **Full Thread Processing**: Analyzes main discussion + all comments for comprehensive context
+- **Community Engagement Analysis**: Processes emoji reactions and comment engagement for content prioritization
 - **Smart Extraction**: Identifies stakeholders, decisions, action items, technical details
 - **Template Application**: Combines AI insights with structured markdown templates
+- **Robust Error Handling**: Exponential backoff retry logic prevents API failures
+
+## 🎭 Community Engagement Analysis
+
+### Reaction-Based Content Prioritization
+Chroniclr analyzes emoji reactions on discussions and comments to prioritize content in generated documents:
+
+**Engagement Metrics:**
+- **👍 High Priority**: Comments with many thumbs up reactions get featured prominently
+- **❤️ Community Love**: Heart reactions indicate strong positive sentiment
+- **🚀 Innovation**: Rocket reactions highlight exciting technical ideas
+- **👎 Concerns**: Thumbs down reactions flag potential issues for discussion
+- **Mixed Reactions**: Content with both positive and negative reactions is marked as controversial
+
+**Intelligence Features:**
+```markdown
+# Generated sections include:
+## Community Insights
+**Participation Level:** high • 23 reactions
+**Overall Sentiment:** positive
+**Most Discussed Topics:** Security concerns, Mobile responsiveness
+
+## High-Engagement Content (prioritize these):
+- @alex-pm: Great metrics! 4.2 hours/week saved... (8 reactions, sentiment: positive)
+- @sarah-dev: Security review process needed... (6 reactions, sentiment: mixed)
+
+## Controversial Points (mixed reactions - highlight for discussion):
+- Security: Auto-documentation of sensitive data (4 👍 vs 2 👎)
+```
+
+**Benefits:**
+- Documents reflect what the community actually cares about
+- Controversial topics are highlighted for team discussion
+- Popular suggestions get emphasized in action plans
+- Team consensus is captured through reaction patterns
 
 ## 🎯 Action Item Management
 
@@ -152,16 +188,19 @@ chroniclr/
 │   └── chroniclr.yml               # Main automation workflow
 ├── src/
 │   ├── generators/
-│   │   └── ai-document-generator.js # AI-powered document generation
+│   │   └── ai-document-generator.js # AI-powered document generation with rate limiting
 │   ├── templates/
 │   │   ├── summary.md              # Project summary template
+│   │   ├── summary-enhanced.md     # Enhanced template with engagement metrics
 │   │   ├── initiative-brief.md     # Initiative brief template  
 │   │   ├── meeting-notes.md        # Meeting notes template
 │   │   └── changelog.md            # Changelog template
 │   └── utils/
 │       ├── validate-discussion.js  # Discussion data validation
 │       ├── process-labels.js       # Label-to-document-type mapping
-│       └── issue-creator.js        # Action item → GitHub issue creation
+│       ├── issue-creator.js        # Action item → GitHub issue creation
+│       ├── github-reactions.js     # Community engagement analysis
+│       └── request-queue.js        # API rate limiting and queue management
 ├── docs/                           # Generated documentation output
 ├── chroniclr.config.json           # Label mappings and configuration
 └── package.json                    # Node.js dependencies and scripts
@@ -203,8 +242,10 @@ Edit `src/utils/issue-creator.js` to:
 
 **GitHub Models API Failures**
 - Check `models: read` permission in workflow
-- Verify GitHub Actions logs for API endpoint errors
-- System falls back to structured templates if AI fails
+- **Rate Limiting**: System automatically handles 429 errors with exponential backoff (1s → 2s → 4s delays)
+- **Request Queue**: Prevents concurrent API calls that trigger rate limits
+- **Retry Logic**: 3 automatic retries before fallback to structured templates
+- View logs for: "Rate limit hit. Waiting Xms before retry Y/3..."
 
 **Action Item Issues Not Created**  
 - Ensure action items follow supported formats: `- [ ] @username: task (Due: date)`
@@ -238,9 +279,11 @@ gh run view [run-id] --log
 
 ### 🤖 **AI-Powered Generation**
 - Uses GitHub's built-in Models API (GPT-4o) - **no API keys required**
-- Processes full discussion threads (main post + all comments)
-- Generates comprehensive, structured documentation
-- Fallback generation if AI services are unavailable
+- Processes full discussion threads (main post + all comments + reactions)
+- **Community Engagement**: Prioritizes content based on emoji reactions (👍, ❤️, 🚀)
+- **Sentiment Analysis**: Identifies controversial points with mixed reactions
+- **Rate Limiting**: Intelligent retry logic handles API constraints gracefully
+- Fallback generation only after exhausting all retry attempts
 
 ### 📋 **Smart Task Management**  
 - Automatically detects action items in multiple formats

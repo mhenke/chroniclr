@@ -8,11 +8,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Core Architecture
 
-### AI-Powered Document Generation
-The system processes GitHub discussions (including all comments) using GitHub's built-in AI models:
+### AI-Powered Document Generation  
+The system processes GitHub discussions (including all comments and reactions) using GitHub's built-in AI models:
 - **AI Engine**: GitHub Models API (`https://models.github.ai/inference`) using GPT-4o
-- **Authentication**: Built-in `GITHUB_TOKEN` with `models: read` permission
-- **Content Processing**: Analyzes full discussion threads (main post + all comments)
+- **Authentication**: Built-in `GITHUB_TOKEN` with `models: read` permission  
+- **Content Processing**: Analyzes full discussion threads (main post + all comments + emoji reactions)
+- **Rate Limiting**: Intelligent retry logic with exponential backoff for 429 errors
+- **Community Engagement**: Prioritizes content based on reaction patterns (👍, ❤️, 🚀, 👎)
 - **Template System**: Combines AI-generated content with markdown templates
 
 ### Label-Based Document Routing
@@ -33,11 +35,15 @@ Document generation follows this pipeline:
 
 ### Content Processing Pipeline
 The AI document generator (`src/generators/ai-document-generator.js`):
-- Fetches discussion main post and all comments
-- Combines into comprehensive content for AI analysis
-- Uses structured prompts to extract stakeholders, action items, decisions
-- Applies document templates with fallback generation on AI failure
-- Logs processing details for debugging
+- Fetches discussion main post and all comments via REST API and GraphQL
+- **NEW**: Analyzes emoji reactions and engagement patterns (`src/utils/github-reactions.js`)
+- **NEW**: Prioritizes content based on community reaction data (👍, ❤️, 🚀, 👎)
+- **NEW**: Uses request queue (`src/utils/request-queue.js`) to prevent rate limiting
+- **NEW**: Implements exponential backoff retry logic for 429 errors
+- Combines all data into comprehensive content for AI analysis with engagement context
+- Uses structured prompts to extract stakeholders, action items, decisions, controversial points
+- Applies document templates with intelligent fallback only after retry exhaustion
+- Enhanced logging with rate limiting and engagement metrics
 
 ## Development Commands
 
@@ -46,24 +52,41 @@ The AI document generator (`src/generators/ai-document-generator.js`):
 npm install                    # Install Node.js dependencies
 npm ci                        # Install exact versions from package-lock.json
 
-# Test core utilities (used by GitHub Actions)
+# Core testing utilities (used by GitHub Actions)
 npm run validate-discussion   # Test discussion validation logic
-npm run process-labels       # Test label-to-document-type mapping
+npm run process-labels       # Test label-to-document-type mapping  
 npm run generate-document    # Test AI document generation (requires env vars)
 npm run create-action-items  # Test action item parsing and GitHub issue creation
 
-# Test GitHub Actions workflow manually
+# Run tests (if available)
+npm test                      # Run Jest test suite
+
+# Manual workflow testing
 gh workflow run chroniclr.yml -f discussion_number=123
 
-# Test locally with environment variables
+# Test locally with environment variables (now includes reaction analysis)
 DOC_TYPE=summary \
 DISCUSSION_NUMBER=123 \
 DISCUSSION_TITLE="Test Discussion" \
 DISCUSSION_BODY="Discussion content with comments..." \
 DISCUSSION_AUTHOR="username" \
 DISCUSSION_URL="https://github.com/owner/repo/discussions/123" \
+GITHUB_REPOSITORY="owner/repo" \
 GITHUB_TOKEN="your_token" \
 npm run generate-document
+
+# Test individual components
+node -e "
+const { GitHubReactionsClient } = require('./src/utils/github-reactions');
+const client = new GitHubReactionsClient();
+client.getDiscussionEngagementData('owner', 'repo', 123).then(console.log);
+"
+
+# Test rate limiting queue
+node -e "
+const { globalRequestQueue } = require('./src/utils/request-queue');
+console.log('Queue status:', globalRequestQueue.getStatus());
+"
 ```
 
 ## GitHub Actions Integration
@@ -106,7 +129,8 @@ Templates in `src/templates/` use `{variableName}` syntax for AI variable substi
 
 ### Built-in Templates
 - `summary.md`: Project overviews, objectives, current status
-- `initiative-brief.md`: Problem statements, solutions, timelines
+- `summary-enhanced.md`: **NEW** - Includes community engagement metrics and reaction analysis
+- `initiative-brief.md`: Problem statements, solutions, timelines  
 - `meeting-notes.md`: Agendas, decisions, action items
 - `changelog.md`: Version history, features, fixes
 
@@ -117,16 +141,19 @@ If AI processing fails, the generator uses templates with `[AI processing unavai
 
 1. **Create template** in `src/templates/{type}.md` using `{variable}` syntax
 2. **Update label mapping** in `chroniclr.config.json` under `github.discussionLabels`
-3. **Test locally** using environment variables:
+3. **Add template path** to `documents.templates` section in `chroniclr.config.json`
+4. **Test locally** using environment variables:
    ```bash
    DOC_TYPE={type} DISCUSSION_NUMBER=123 npm run generate-document
    ```
-4. **Update workflow** if new permissions or processing logic needed
+5. **Update workflow** if new permissions or processing logic needed
 
 ## Key Files and Architecture
 
 ### Core Processing Files
-- `src/generators/ai-document-generator.js`: Main AI processing logic using GitHub Models API
+- `src/generators/ai-document-generator.js`: Main AI processing logic using GitHub Models API with rate limiting
+- `src/utils/github-reactions.js`: **NEW** - Community engagement analysis via GraphQL reactions API
+- `src/utils/request-queue.js`: **NEW** - API rate limiting and request queue management
 - `src/utils/validate-discussion.js`: Validates required discussion fields
 - `src/utils/process-labels.js`: Maps discussion labels to document types
 - `chroniclr.config.json`: Central configuration for label mappings and templates
@@ -179,9 +206,32 @@ Chroniclr automatically detects action items in discussions and creates assigned
 - **Missing discussion data**: Check GraphQL/REST API access
 - **Label processing errors**: Verify `chroniclr.config.json` syntax
 - **Permission issues**: Ensure all required permissions are set
-- **Rate limiting**: GitHub API limits may cause temporary failures
+- **Rate limiting**: GitHub API limits are now automatically handled with retry logic
+  - Look for: "Rate limit hit. Waiting Xms before retry Y/3..."
+  - System uses exponential backoff: 1s → 2s → 4s delays
+  - Only falls back to templates after 3 retry attempts
 
 ### Document Output Issues
 - Generated files appear in `docs/` directory
 - Missing labels default to "summary" document type  
 - Check PR creation logs if documents aren't appearing in PRs
+
+### Community Engagement Issues
+- **No reaction data**: Check if GraphQL API permissions include discussions
+- **Empty engagement metrics**: Discussion may have no reactions/comments
+- **Authentication errors**: Ensure GITHUB_TOKEN has proper scopes
+- **Missing engagement sections**: Use `summary-enhanced.md` template for engagement features
+
+### Rate Limiting Debug Logs
+```
+# Successful rate limit handling:
+"Making AI API request... (attempt 1/4)"
+"Queue status: 0 pending, 1 active"
+"Rate limit hit. Waiting 1000ms before retry 1/3..."
+"Making AI API request... (attempt 2/4)"
+"AI response received successfully"
+
+# Fallback only after retries exhausted:
+"Rate limit hit. Waiting 4000ms before retry 3/3..."
+"All 4 attempts failed. Using fallback document generation."
+```
