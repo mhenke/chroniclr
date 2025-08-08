@@ -3,7 +3,7 @@ name: Chroniclr Documentation Generator
 on:
   discussion:
     types: [created, edited]
-  
+
   workflow_dispatch:
     inputs:
       discussion_number:
@@ -20,102 +20,105 @@ permissions:
 jobs:
   generate-docs:
     runs-on: ubuntu-latest
-    
+
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '18'
-        cache: 'npm'
-        
-    - name: Install dependencies
-      run: npm ci
-      
-        
-    - name: Get discussion details
-      id: discussion
-      uses: actions/github-script@v7
-      with:
-        script: |
-          const discussionNumber = context.payload.discussion?.number || 
-                                  context.payload.inputs?.discussion_number;
-          
-          if (!discussionNumber) {
-            core.setFailed('No discussion number found');
-            return;
-          }
-          
-          const { data: discussion } = await github.rest.discussions.get({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            discussion_number: discussionNumber
-          });
-          
-          core.setOutput('number', discussion.number);
-          core.setOutput('title', discussion.title);
-          core.setOutput('body', discussion.body);
-          core.setOutput('labels', JSON.stringify(discussion.labels));
-          core.setOutput('author', discussion.user.login);
-          core.setOutput('url', discussion.html_url);
-          
-    - name: Validate discussion data
-      env:
-        DISCUSSION_NUMBER: ${{ steps.discussion.outputs.number }}
-        DISCUSSION_TITLE: ${{ steps.discussion.outputs.title }}
-        DISCUSSION_BODY: ${{ steps.discussion.outputs.body }}
-        DISCUSSION_AUTHOR: ${{ steps.discussion.outputs.author }}
-        DISCUSSION_URL: ${{ steps.discussion.outputs.url }}
-      run: npm run validate-discussion
-        
-    - name: Determine document types
-      id: doc-types
-      env:
-        DISCUSSION_LABELS: ${{ steps.discussion.outputs.labels }}
-      run: npm run process-labels
-        
-    - name: Generate documentation
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        DOC_TYPES: ${{ steps.doc-types.outputs.document_types }}
-        DISCUSSION_NUMBER: ${{ steps.discussion.outputs.number }}
-        DISCUSSION_TITLE: ${{ steps.discussion.outputs.title }}
-        DISCUSSION_BODY: ${{ steps.discussion.outputs.body }}
-        DISCUSSION_AUTHOR: ${{ steps.discussion.outputs.author }}
-        DISCUSSION_URL: ${{ steps.discussion.outputs.url }}
-      run: |
-        for doc_type in $DOC_TYPES; do
-          DOC_TYPE=$doc_type npm run generate-document
-        done
-        
-    - name: Create Pull Request
-      if: success()
-      uses: peter-evans/create-pull-request@v5
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        commit-message: '📚 Generate documentation for discussion #${{ steps.discussion.outputs.number }}'
-        title: '📚 Update documentation from discussion #${{ steps.discussion.outputs.number }}'
-        body: |
-          ## Automated Documentation Update
-          
-          This PR contains documentation automatically generated from GitHub discussion #${{ steps.discussion.outputs.number }}.
-          
-          **Discussion:** [${{ steps.discussion.outputs.title }}](${{ steps.discussion.outputs.url }})
-          **Author:** @${{ steps.discussion.outputs.author }}
-          **Generated Documents:** ${{ steps.doc-types.outputs.document_types }}
-          
-          ### Changes
-          - Generated documentation based on discussion content
-          - Applied appropriate templates for document types
-          - Extracted key information and action items
-          
-          ---
-          🤖 *This PR was automatically created by Chroniclr*
-        branch: docs/chroniclr-${{ steps.discussion.outputs.number }}
-        delete-branch: true
-        labels: |
-          documentation
-          automated
-          chroniclr
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Get discussion details
+        id: discussion
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const discussionNumber = context.payload.discussion?.number || 
+                                    context.payload.inputs?.discussion_number;
+
+            if (!discussionNumber) {
+              core.setFailed('No discussion number found');
+              return;
+            }
+
+            // Use the generic REST request to access the Discussions API to avoid missing namespace issues
+            const { data: discussion } = await github.request(
+              'GET /repos/{owner}/{repo}/discussions/{discussion_number}',
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                discussion_number: Number(discussionNumber)
+              }
+            );
+
+            core.setOutput('number', discussion.number);
+            core.setOutput('title', discussion.title);
+            core.setOutput('body', discussion.body);
+            core.setOutput('labels', JSON.stringify(discussion.labels || []));
+            core.setOutput('author', discussion.user.login);
+            core.setOutput('url', discussion.html_url);
+
+      - name: Validate discussion data
+        env:
+          DISCUSSION_NUMBER: ${{ steps.discussion.outputs.number }}
+          DISCUSSION_TITLE: ${{ steps.discussion.outputs.title }}
+          DISCUSSION_BODY: ${{ steps.discussion.outputs.body }}
+          DISCUSSION_AUTHOR: ${{ steps.discussion.outputs.author }}
+          DISCUSSION_URL: ${{ steps.discussion.outputs.url }}
+        run: npm run validate-discussion
+
+      - name: Determine document types
+        id: doc-types
+        env:
+          DISCUSSION_LABELS: ${{ steps.discussion.outputs.labels }}
+        run: npm run process-labels
+
+      - name: Generate documentation
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DOC_TYPES: ${{ steps.doc-types.outputs.document_types }}
+          DISCUSSION_NUMBER: ${{ steps.discussion.outputs.number }}
+          DISCUSSION_TITLE: ${{ steps.discussion.outputs.title }}
+          DISCUSSION_BODY: ${{ steps.discussion.outputs.body }}
+          DISCUSSION_AUTHOR: ${{ steps.discussion.outputs.author }}
+          DISCUSSION_URL: ${{ steps.discussion.outputs.url }}
+        run: |
+          for doc_type in $DOC_TYPES; do
+            DOC_TYPE=$doc_type npm run generate-document
+          done
+
+      - name: Create Pull Request
+        if: success()
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: '📚 Generate documentation for discussion #${{ steps.discussion.outputs.number }}'
+          title: '📚 Update documentation from discussion #${{ steps.discussion.outputs.number }}'
+          body: |
+            ## Automated Documentation Update
+
+            This PR contains documentation automatically generated from GitHub discussion #${{ steps.discussion.outputs.number }}.
+
+            **Discussion:** [${{ steps.discussion.outputs.title }}](${{ steps.discussion.outputs.url }})
+            **Author:** @${{ steps.discussion.outputs.author }}
+            **Generated Documents:** ${{ steps.doc-types.outputs.document_types }}
+
+            ### Changes
+            - Generated documentation based on discussion content
+            - Applied appropriate templates for document types
+            - Extracted key information and action items
+
+            ---
+            🤖 *This PR was automatically created by Chroniclr*
+          branch: docs/chroniclr-${{ steps.discussion.outputs.number }}
+          delete-branch: true
+          labels: |
+            documentation
+            automated
+            chroniclr
