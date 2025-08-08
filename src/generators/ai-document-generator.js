@@ -448,7 +448,13 @@ Generate the comprehensive ${docType} document now:
         );
       }
 
-      return generatedContent;
+      // Audit & sanitize speculative content
+      const audited = this.sanitizeAndAuditContent(
+        generatedContent,
+        discussionData,
+        docType
+      );
+      return audited;
     } catch (error) {
       core.error(`Failed to generate ${docType}: ${error.message}`);
 
@@ -472,6 +478,45 @@ Generate the comprehensive ${docType} document now:
     core.info(`Generated: ${filepath}`);
 
     return filepath;
+  }
+
+  sanitizeAndAuditContent(content, discussionData, docType) {
+    try {
+      const src = (discussionData.body || '').toLowerCase();
+      const lines = String(content).split(/\r?\n/);
+
+      const prohibited = [
+        /cannot be (accurately )?determined/i,
+        /not provided/i,
+        /not specified/i,
+        /unknown(\b|:)/i,
+        /could not be found/i,
+        /cannot be inferred/i,
+      ];
+
+      const filtered = lines.filter((line) => {
+        // Drop meta-statements about missing info
+        if (prohibited.some((re) => re.test(line))) return false;
+
+        // Avoid fabricated meeting duration unless present in source
+        if (/duration/i.test(line)) {
+          if (!src.includes('duration')) return false;
+        }
+
+        return true;
+      });
+
+      const cleaned = filtered.join('\n');
+      if (cleaned !== content) {
+        core.warning(
+          'Audit removed non-verifiable or speculative lines from generated content'
+        );
+      }
+      return cleaned;
+    } catch (e) {
+      core.warning(`Audit step failed: ${e.message}`);
+      return content;
+    }
   }
 }
 
