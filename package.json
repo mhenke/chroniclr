@@ -1,0 +1,30 @@
+{
+  "name": "chroniclr",
+  "version": "1.0.0",
+  "description": "AI-powered documentation automation system",
+  "main": "src/utils/workflow-helper.js",
+  "scripts": {
+    "validate-discussion": "node src/utils/validate-discussion.js",
+    "process-labels": "node src/utils/process-labels.js",
+    "setup-env": "node src/utils/setup-env.js"
+  },
+  "keywords": [
+    "documentation",
+    "automation", 
+    "github",
+    "claude-code",
+    "ai"
+  ],
+  "author": "Chroniclr",
+  "license": "MIT",
+  "dependencies": {
+    "@actions/core": "^1.10.1",
+    "@actions/github": "^6.0.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

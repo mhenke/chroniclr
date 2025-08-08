@@ -1,0 +1,42 @@
+{
+  "project": {
+    "name": "chroniclr",
+    "description": "AI-powered documentation automation system",
+    "version": "1.0.0"
+  },
+  "github": {
+    "repository": "",
+    "owner": "",
+    "defaultBranch": "main",
+    "discussionLabels": {
+      "documentation": ["summary", "meeting-notes"],
+      "initiative": ["initiative-brief"],
+      "release": ["changelog"],
+      "feature": ["initiative-brief", "summary"],
+      "planning": ["meeting-notes", "summary"]
+    }
+  },
+  "documents": {
+    "outputDir": "docs",
+    "templates": {
+      "summary": "src/templates/summary.md",
+      "initiative-brief": "src/templates/initiative-brief.md",
+      "changelog": "src/templates/changelog.md",
+      "meeting-notes": "src/templates/meeting-notes.md"
+    },
+    "autoGenerate": true,
+    "createPR": true,
+    "autoMerge": false
+  },
+  "claude": {
+    "model": "claude-3-sonnet-20240229",
+    "maxTokens": 4000,
+    "temperature": 0.3
+  },
+  "workflow": {
+    "triggers": ["discussion_created", "discussion_edited"],
+    "requiredApprovals": 1,
+    "branchPrefix": "docs/chroniclr-",
+    "commitMessage": "📚 Update documentation via Chroniclr"
+  }
+}
