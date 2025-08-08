@@ -1,14 +1,22 @@
 # Chroniclr - AI-Powered Documentation Automation
 
-> Automatically generate project documentation from GitHub discussions using Claude Code and GitHub Actions.
+> Automatically generate project documentation and manage action items from GitHub discussions using GitHub Models API and GitHub Actions.
 
 ## Overview
 
-Chroniclr transforms GitHub discussions into comprehensive documentation including:
-- **Project Summaries** - Overview, objectives, current status
-- **Initiative Briefs** - Problem statements, solutions, timelines  
+Chroniclr transforms GitHub discussions (including all comments) into comprehensive documentation and automatically creates GitHub issues for action items:
+
+### 📚 **Documentation Generation**
+- **Project Summaries** - Overview, objectives, current status, stakeholder input
+- **Initiative Briefs** - Problem statements, solutions, timelines, technical specifications  
 - **Changelogs** - Version history, feature additions, bug fixes
-- **Meeting Notes** - Action items, decisions, next steps
+- **Meeting Notes** - Action items, decisions, next steps, progress updates
+
+### 🎯 **Automatic Task Management**
+- **Action Item Detection** - Parse action items from discussions and comments
+- **GitHub Issues Creation** - Automatically create assigned issues with due dates
+- **Smart Labeling** - Priority labels based on deadlines, status tracking
+- **Assignment Validation** - Verify users exist before assignment
 
 ## Quick Start
 
@@ -21,132 +29,255 @@ cd chroniclr
 
 # Install dependencies for GitHub Actions
 npm install
-
-# Configure environment
-cp .env.example .env
-# Edit .env with your API keys
 ```
 
-### 2. Configure GitHub Secrets
+### 2. Configure Repository Permissions
 
-Add these secrets to your GitHub repository:
-- `CLAUDE_API_KEY` - Your Anthropic API key
-- `GITHUB_TOKEN` - Auto-provided by GitHub Actions
-
-### 3. Customize Configuration
-
-Edit `chroniclr.config.json` to match your repository:
-```json
-{
-  "github": {
-    "repository": "your-repo",
-    "owner": "your-username"
-  }
-}
+Enable GitHub Models API access by ensuring your workflow has these permissions:
+```yaml
+permissions:
+  contents: write      # For creating files and commits
+  discussions: read    # For reading discussion data
+  pull-requests: write # For creating PRs
+  issues: write       # For creating action item issues
+  models: read        # For GitHub Models API access
 ```
 
-### 4. Test the System
+**No API keys required** - Uses built-in `GITHUB_TOKEN` and GitHub Models API!
 
-1. Create a GitHub discussion with labels like `documentation`, `initiative`, or `release`
-2. Watch as Chroniclr automatically generates documentation
-3. Review and merge the auto-created PR
+### 3. Test the System
 
-## How It Works
+1. Create a GitHub discussion with labels like `documentation`, `initiative`, or `planning`
+2. Add action items in comments using format: `- [ ] @username: Task description (Due: Aug 10)`
+3. Watch as Chroniclr automatically:
+   - Generates comprehensive documentation from full discussion thread
+   - Creates assigned GitHub issues for all action items
+   - Opens PR with summary of generated docs and created issues
 
-### Label-Based Routing
-Discussion labels determine document types:
-- `documentation` → Project summary + meeting notes
-- `initiative` → Initiative brief + summary  
-- `release` → Changelog
-- `planning` → Meeting notes + summary
+### 4. Add Labels and Trigger Automation
 
-### Generation Pipeline
-1. **GitHub Actions** triggers on discussion events
-2. **Node.js utilities** validate data and process labels
-3. **Claude Code agents** analyze content and generate documents
-4. **Git integration** creates PRs with generated documentation
-
-### Templates & Variables
-Documents use consistent variable substitution:
-- `{title}`, `{date}`, `{status}`, `{participants}`
-- `{objectives}`, `{actionItems}`, `{timeline}`
-- `{problemStatement}`, `{proposedSolution}`
-
-## Manual Commands
-
-Use Claude Code for manual document generation:
-
+The workflow runs automatically on discussion creation/editing, or manually via:
 ```bash
-# Generate from discussion URL
-claude-code /generate-summary https://github.com/owner/repo/discussions/123
-
-# Create initiative brief
-claude-code /create-brief https://github.com/owner/repo/discussions/456
-
-# Update changelog
-claude-code /update-changelog v1.2.0
-
-# Sync all documentation
-claude-code /sync-docs
-```
-
-## File Structure
-
-```
-chroniclr/
-├── .claude/
-│   ├── agents/           # Claude Code document generators
-│   └── commands/         # Slash command definitions
-├── .github/workflows/    # GitHub Actions automation
-├── src/
-│   ├── templates/        # Document templates
-│   └── utils/            # GitHub Actions utilities
-├── docs/                 # Generated documentation
-└── config/               # Project configuration
-```
-
-## Customization
-
-### Add Document Types
-1. Create template in `src/templates/{type}.md`
-2. Update `chroniclr.config.json` label mappings
-3. Add processing logic to agents if needed
-
-### Modify Templates
-Edit files in `src/templates/` following the `{variable}` syntax.
-
-### Custom Agents  
-Create specialized Claude Code agents in `.claude/agents/` for complex document types.
-
-## Debugging
-
-Common issues:
-- **Missing labels** → Defaults to summary document
-- **API rate limits** → Check GitHub Actions logs for 403/429 errors  
-- **Template variables** → Ensure agents output matches template expectations
-- **Claude API** → Verify `CLAUDE_API_KEY` secret is set
-
-## Development
-
-```bash
-# Test utilities locally
-npm run validate-discussion
-npm run process-labels
-
-# Test agent execution
-claude-code run .claude/agents/document-generator.md --doc-type=summary
-
-# Test GitHub Actions workflow
 gh workflow run chroniclr.yml -f discussion_number=123
 ```
 
-## Contributing
+## How It Works
 
-1. Fork the repository
-2. Create feature branch
-3. Test with sample discussions  
-4. Submit PR with documentation updates
+### 🏷️ **Label-Based Document Routing**
+Discussion labels determine which document types are generated:
+- `documentation` → Project summary + meeting notes
+- `initiative` → Initiative brief 
+- `feature` → Initiative brief + summary
+- `release` → Changelog
+- `planning` → Meeting notes + summary
 
-## License
+### ⚙️ **Complete Automation Pipeline**
+1. **GitHub Actions** triggers on discussion events (created/edited)
+2. **Discussion Processing** fetches main post + all comments via REST API & GraphQL
+3. **Label Processing** maps labels to document types using `chroniclr.config.json`
+4. **AI Generation** uses GitHub Models API (GPT-4o) to analyze full conversation
+5. **Action Item Processing** parses action items and creates assigned GitHub issues
+6. **Documentation Creation** generates structured documents using templates
+7. **PR Creation** opens pull request with all generated content and issue summaries
 
-MIT - See LICENSE file for details.
+### 🤖 **AI-Powered Analysis**
+- **GitHub Models API**: Uses GPT-4o via GitHub's built-in AI service
+- **Full Thread Processing**: Analyzes main discussion + all comments for comprehensive context
+- **Smart Extraction**: Identifies stakeholders, decisions, action items, technical details
+- **Template Application**: Combines AI insights with structured markdown templates
+
+## 🎯 Action Item Management
+
+### Supported Action Item Formats
+Chroniclr automatically detects and processes these action item formats:
+
+```markdown
+# Checkbox format with assignment and due date
+- [ ] @username: Task description (Due: Aug 10)
+- [ ] @sarah-dev: Set up monitoring dashboard (Due: Aug 15)
+
+# Alternative format  
+- [ ] Complete API documentation @mike-torres (Due: Aug 12)
+
+# In Action Items sections
+## Action Items
+- @alex-pm: Survey team members on documentation needs (Due: Aug 18)
+- @jamie-design: Create mobile-responsive templates (Due: Aug 20)
+```
+
+### Automatic GitHub Issue Creation
+For each action item, Chroniclr:
+- ✅ **Creates GitHub Issue** with descriptive title: `[Action Item] {description}`
+- 👤 **Assigns to User** (validates user exists first)  
+- 🏷️ **Applies Labels**: `action-item`, `chroniclr-generated`, `needs-triage`
+- ⏰ **Priority Labels**: Based on due dates (high ≤3 days, medium ≤7 days, low >7 days)
+- 🔗 **Links to Source**: Full context and link back to original discussion
+- 📝 **Rich Description**: Includes due date, discussion context, and metadata
+
+## 🛠️ Development Commands
+
+### Testing Utilities
+```bash
+# Install dependencies
+npm install
+
+# Test core functionality
+npm run validate-discussion   # Test discussion validation
+npm run process-labels       # Test label-to-document mapping
+npm run generate-document    # Test AI document generation
+npm run create-action-items  # Test action item processing
+
+# Manual workflow testing
+gh workflow run chroniclr.yml -f discussion_number=123
+```
+
+### Local Testing with Environment Variables
+```bash
+# Test document generation locally
+DOC_TYPE=summary \
+DISCUSSION_NUMBER=123 \
+DISCUSSION_TITLE="Test Discussion" \
+DISCUSSION_BODY="Discussion content with comments..." \
+DISCUSSION_AUTHOR="username" \
+DISCUSSION_URL="https://github.com/owner/repo/discussions/123" \
+GITHUB_TOKEN="your_token" \
+npm run generate-document
+```
+
+## 📁 File Structure
+
+```
+chroniclr/
+├── .github/workflows/
+│   └── chroniclr.yml               # Main automation workflow
+├── src/
+│   ├── generators/
+│   │   └── ai-document-generator.js # AI-powered document generation
+│   ├── templates/
+│   │   ├── summary.md              # Project summary template
+│   │   ├── initiative-brief.md     # Initiative brief template  
+│   │   ├── meeting-notes.md        # Meeting notes template
+│   │   └── changelog.md            # Changelog template
+│   └── utils/
+│       ├── validate-discussion.js  # Discussion data validation
+│       ├── process-labels.js       # Label-to-document-type mapping
+│       └── issue-creator.js        # Action item → GitHub issue creation
+├── docs/                           # Generated documentation output
+├── chroniclr.config.json           # Label mappings and configuration
+└── package.json                    # Node.js dependencies and scripts
+```
+
+## 🔧 Customization
+
+### Adding New Document Types
+1. **Create template** in `src/templates/{type}.md` using `{variable}` syntax
+2. **Update label mapping** in `chroniclr.config.json`:
+   ```json
+   {
+     "github": {
+       "discussionLabels": {
+         "your-label": ["your-document-type"]
+       }
+     }
+   }
+   ```
+3. **Test locally**: `DOC_TYPE=your-type npm run generate-document`
+
+### Customizing Templates
+Templates use `{variableName}` syntax that gets replaced by AI-generated content:
+- `{title}`, `{date}`, `{discussionNumber}` - Basic metadata
+- `{participants}`, `{stakeholders}` - People involved
+- `{objectives}`, `{decisions}`, `{actionItems}` - Content sections
+- `{timeline}`, `{nextSteps}` - Planning elements
+
+### Modifying Action Item Detection
+Edit `src/utils/issue-creator.js` to:
+- Add new regex patterns for action item formats
+- Customize issue creation logic
+- Modify label assignment rules
+- Change priority calculation
+
+## 🐛 Debugging & Troubleshooting
+
+### Common Issues & Solutions
+
+**GitHub Models API Failures**
+- Check `models: read` permission in workflow
+- Verify GitHub Actions logs for API endpoint errors
+- System falls back to structured templates if AI fails
+
+**Action Item Issues Not Created**  
+- Ensure action items follow supported formats: `- [ ] @username: task (Due: date)`
+- Check if mentioned users exist in repository
+- Verify `issues: write` permission in workflow
+
+**Workflow Failures**
+- **Discussion not found**: Check discussion number and repository access
+- **Label processing errors**: Validate `chroniclr.config.json` syntax
+- **Permission issues**: Ensure all required permissions are configured
+
+**Generated Documents Issues**
+- Files appear in `docs/` directory
+- Missing labels default to "summary" document type  
+- Check PR creation logs if documents aren't appearing
+
+### Debug Commands
+```bash
+# Test individual components
+npm run validate-discussion  # Check discussion data validation
+npm run process-labels      # Test label mapping logic  
+npm run generate-document   # Test AI document generation
+npm run create-action-items # Test action item processing
+
+# View workflow logs
+gh run list --workflow=chroniclr.yml
+gh run view [run-id] --log
+```
+
+## ✨ Features Summary
+
+### 🤖 **AI-Powered Generation**
+- Uses GitHub's built-in Models API (GPT-4o) - **no API keys required**
+- Processes full discussion threads (main post + all comments)
+- Generates comprehensive, structured documentation
+- Fallback generation if AI services are unavailable
+
+### 📋 **Smart Task Management**  
+- Automatically detects action items in multiple formats
+- Creates assigned GitHub issues with due dates and priorities
+- Validates user assignments and handles missing users gracefully
+- Links issues back to source discussions for full context
+
+### 🔄 **Complete Automation**
+- Triggers on discussion creation/editing or manual workflow dispatch
+- Zero configuration required - works with GitHub's built-in permissions
+- Comprehensive error handling and logging
+- Reports generation summary in pull request descriptions
+
+### 🎯 **Production Ready**
+- Handles large repositories and complex discussions  
+- Robust error handling with fallback mechanisms
+- Comprehensive logging for debugging and monitoring
+- Battle-tested with realistic discussion scenarios
+
+## 🤝 Contributing
+
+1. **Fork the repository** and create a feature branch
+2. **Test thoroughly** with sample discussions containing action items
+3. **Run the test suite**: `npm run validate-discussion && npm run process-labels`
+4. **Submit PR** with updated documentation and test examples
+
+### Development Setup
+```bash
+git clone https://github.com/your-username/chroniclr.git
+cd chroniclr
+npm install
+```
+
+## 📄 License
+
+MIT License - See [LICENSE](LICENSE) file for details.
+
+---
+
+**🚀 Transform your GitHub discussions into comprehensive documentation and organized task management with zero setup required!**

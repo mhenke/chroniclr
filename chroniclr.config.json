@@ -28,8 +28,10 @@
     "createPR": true,
     "autoMerge": false
   },
-  "claude": {
-    "model": "claude-3-sonnet-20240229",
+  "ai": {
+    "provider": "github-models",
+    "model": "gpt-4o",
+    "endpoint": "https://models.github.ai/inference",
     "maxTokens": 4000,
     "temperature": 0.3
   },

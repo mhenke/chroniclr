@@ -14,8 +14,10 @@
     "documentation",
     "automation", 
     "github",
-    "claude-code",
-    "ai"
+    "github-models",
+    "ai",
+    "action-items",
+    "task-management"
   ],
   "author": "Chroniclr",
   "license": "MIT",

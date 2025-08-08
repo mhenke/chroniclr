@@ -1,106 +1,145 @@
-# Chroniclr - Development Prompts
+# Chroniclr - Development Guide
 
-## Project Setup Complete ✅
+## Project Status ✅
 
-The Chroniclr system is now fully implemented with:
-- GitHub Actions workflow
-- Claude Code agents and templates  
-- Node.js utilities for workflow support
-- Complete documentation
+The Chroniclr system is fully implemented with:
+- GitHub Actions automation workflow
+- GitHub Models API integration (GPT-4o)
+- JavaScript-based AI document generation
+- Automatic action item → GitHub issue creation
+- Comprehensive error handling and fallback systems
+- Complete documentation and testing utilities
 
-## Development Prompts
+## 🚀 Current Features (Completed)
 
-Use these prompts for extending and customizing Chroniclr:
+### ✅ **AI-Powered Document Generation**
+- **GitHub Models API Integration**: Uses GPT-4o via GitHub's built-in AI service
+- **Full Thread Processing**: Analyzes main discussion + all comments for comprehensive context
+- **Template System**: Combines AI insights with structured markdown templates
+- **Fallback Generation**: Structured documents if AI processing fails
 
-## Enhancement Prompts
+### ✅ **Automatic Task Management**
+- **Action Item Detection**: Multi-format regex parsing of action items
+- **GitHub Issue Creation**: Automatic assignment with due dates and priority labels  
+- **User Validation**: Checks if assigned users exist before creating issues
+- **Smart Labeling**: Priority based on due dates, standard tracking labels
 
-### Document Generation Engine
+### ✅ **Production-Ready Automation**
+- **GitHub Actions Workflow**: Complete automation triggered by discussion events
+- **Error Handling**: Comprehensive logging, graceful fallbacks, retry mechanisms
+- **Permission Management**: Uses built-in GITHUB_TOKEN, no API keys required
+- **PR Integration**: Automatic PRs with generation summaries
+
+## 🔧 Enhancement Ideas
+
+### Advanced AI Features
 ```
-"Build the core document processor that can:
-1. Parse GitHub discussion JSON data
-2. Extract key information (objectives, stakeholders, timeline)
-3. Apply document templates with intelligent content generation
-4. Handle multiple output formats (markdown, HTML)
-5. Include error handling and validation
-
-Create this as a modular Node.js system that Claude Code can orchestrate."
-```
-
-### GitHub Integration
-```
-"Create the GitHub integration components:
-1. Webhook handler for discussion events  
-2. GitHub API client for fetching discussion data
-3. Automatic PR creation for generated documents
-4. Comment posting with document summaries
-5. Integration with existing issue/PR workflows
-
-Focus on reliability and proper error handling."
-```
-
-### Smart Context Gathering
-```
-"Build an intelligent context system that:
-1. Analyzes related issues, PRs, and commits
-2. Identifies relevant stakeholders from Git history
-3. Extracts technical requirements from code changes
-4. Builds comprehensive project timelines
-5. Suggests document improvements based on patterns
-
-This should enhance the quality of generated documentation."
+Enhance the AI processing with:
+1. Sentiment analysis for urgency detection
+2. Topic modeling for automatic categorization
+3. Multi-language support for international teams
+4. Custom AI prompts per document type
+5. Learning from user feedback to improve quality
 ```
 
-### Template Enhancement
+### Extended Integrations
 ```
-"Improve the document templates with:
-1. Conditional sections based on project type
-2. Dynamic stakeholder identification
-3. Automatic cross-referencing between documents  
-4. Version history tracking
-5. Custom formatting options for different audiences
-
-Make the templates intelligent and adaptive."
+Add integrations with:
+1. Slack notifications for generated documents
+2. Jira/Linear for action item sync
+3. Confluence for documentation publishing
+4. Teams/Discord for collaboration updates
+5. Calendar integration for deadline tracking
 ```
 
-### Testing & Validation
+### Advanced Template System
 ```
-"Create a comprehensive testing system:
-1. Unit tests for document processing logic
-2. Integration tests with mock GitHub data
-3. End-to-end workflow testing
-4. Document quality validation
-5. Performance benchmarks
-
-Include sample test data and automated test runs."
+Create intelligent templates that:
+1. Adapt based on repository size and type
+2. Include interactive elements (checkboxes, forms)
+3. Generate diagrams and flowcharts automatically
+4. Support multiple output formats (PDF, HTML, Confluence)
+5. Version control template evolution
 ```
 
-## Quick Start Commands
+### Analytics & Insights
+```
+Build analytics features:
+1. Documentation generation metrics dashboard
+2. Action item completion tracking
+3. Stakeholder engagement analysis
+4. Template effectiveness scoring
+5. Repository documentation health reports
+```
 
-After setup, use these commands in Claude Code:
+## 🛠️ Development Commands
 
+### Testing & Debugging
 ```bash
-# Process a specific discussion
-/process-discussion https://github.com/owner/repo/discussions/123
+# Install dependencies
+npm install
 
-# Generate documentation for current project state
-/generate-docs
+# Test individual components
+npm run validate-discussion   # Test discussion validation
+npm run process-labels       # Test label mapping
+npm run generate-document    # Test AI generation (requires env vars)
+npm run create-action-items  # Test action item processing
 
-# Update all existing documentation
-/update-docs
+# Manual workflow testing
+gh workflow run chroniclr.yml -f discussion_number=123
 
-# Create a new document type
-/new-template initiative-brief
-
-# Review and improve existing documents  
-/review-docs
+# View workflow logs
+gh run list --workflow=chroniclr.yml
+gh run view [run-id] --log
 ```
 
-## Pro Tips
+### Local Development
+```bash
+# Test document generation locally with environment variables
+DOC_TYPE=summary \
+DISCUSSION_NUMBER=123 \
+DISCUSSION_TITLE="Test Discussion" \
+DISCUSSION_BODY="Discussion content with comments..." \
+DISCUSSION_AUTHOR="username" \
+DISCUSSION_URL="https://github.com/owner/repo/discussions/123" \
+GITHUB_TOKEN="your_token" \
+npm run generate-document
 
-1. **Start Simple**: Begin with basic summary generation, then add complexity
-2. **Use Real Data**: Test with actual GitHub discussions from your projects  
-3. **Iterate Fast**: Use Claude Code's conversation continuity with `--continue`
-4. **Template First**: Perfect your document templates before automating
-5. **Monitor Quality**: Review generated documents and refine prompts accordingly
+# Test action item processing
+DISCUSSION_BODY="- [ ] @username: Task (Due: Aug 10)" \
+npm run create-action-items
+```
 
-The system will learn your preferences and improve over time through iterative development with Claude Code!
+### Workflow Configuration
+```yaml
+# Required permissions in .github/workflows/chroniclr.yml
+permissions:
+  contents: write      # For creating files and commits
+  discussions: read    # For reading discussion data
+  pull-requests: write # For creating PRs
+  issues: write       # For creating action item issues
+  models: read        # For GitHub Models API access
+```
+
+## 📝 Development Tips
+
+1. **Test with Real Data**: Use actual discussions with comments and action items
+2. **Monitor AI Quality**: Check generated documents for accuracy and completeness
+3. **Validate Action Items**: Ensure action item formats are recognized correctly
+4. **Review Error Logs**: GitHub Actions logs provide detailed debugging information
+5. **Iterate Templates**: Customize templates in `src/templates/` for your needs
+
+## 🔄 Workflow Integration
+
+The system automatically triggers on:
+- **Discussion created** events
+- **Discussion edited** events
+- **Manual workflow dispatch** with discussion number
+
+Each run:
+1. Extracts discussion + comments
+2. Generates comprehensive documentation
+3. Creates GitHub issues for action items
+4. Opens PR with summaries and links
+
+The system is **production-ready** with comprehensive error handling, fallback mechanisms, and detailed logging!
