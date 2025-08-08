@@ -25,116 +25,167 @@ class AIDocumentGenerator {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  async generateCompletion(prompt, retryCount = 0) {
+  async handleRateLimitAndRetry(
+    response,
+    retryCount,
+    maxRetries,
+    baseDelayMs,
+    prompt
+  ) {
+    const status = response.status;
+
+    // Retry on 429 (rate limit) and 5xx server errors
+    if (status === 429 || status >= 500) {
+      if (retryCount < maxRetries) {
+        // Derive delay from Retry-After header or exponential backoff
+        let delayMs = baseDelayMs * Math.pow(2, retryCount);
+        const retryAfter = response.headers?.get?.('retry-after');
+        if (retryAfter) {
+          const asNumber = Number(retryAfter);
+          if (!Number.isNaN(asNumber)) {
+            delayMs = Math.max(delayMs, asNumber * 1000);
+          } else {
+            const asDate = Date.parse(retryAfter);
+            if (!Number.isNaN(asDate)) {
+              const delta = asDate - Date.now();
+              if (delta > 0) delayMs = Math.max(delayMs, delta);
+            }
+          }
+        }
+
+        core.warning(
+          `Rate limit/Server error ${status}. Waiting ${delayMs}ms before retry ${
+            retryCount + 1
+          }/${maxRetries}...`
+        );
+        await this.sleep(delayMs);
+        // Signal to retry by returning true
+        return true;
+      }
+
+      core.error(`Max retries reached for status ${status}.`);
+      return false;
+    }
+
+    // No retry handling for other statuses
+    return false;
+  }
+
+  async generateCompletion(prompt) {
     const maxRetries = 3;
     const baseDelayMs = 1000; // Start with 1 second
 
     // Queue the request to prevent concurrent API calls
     return globalRequestQueue.add(async () => {
-      try {
-        core.info(
-          `Making AI API request... (attempt ${retryCount + 1}/${
-            maxRetries + 1
-          })`
-        );
-        const queueStatus = globalRequestQueue.getStatus();
-        core.info(
-          `Queue status: ${queueStatus.queueLength} pending, ${queueStatus.activeRequests} active`
-        );
-
-        const requestBody = {
-          model: this.model,
-          messages: [
-            {
-              role: 'system',
-              content:
-                'You are a professional documentation generator. Create well-structured, comprehensive documents based on GitHub discussion content.',
-            },
-            {
-              role: 'user',
-              content: prompt,
-            },
-          ],
-          max_tokens: 4000,
-          temperature: 0.3,
-        };
-
-        const response = await fetch(`${this.baseURL}/chat/completions`, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${this.apiKey}`,
-            'Content-Type': 'application/json',
-            Accept: 'application/vnd.github+json',
-            'X-GitHub-Api-Version': '2022-11-28',
-          },
-          body: JSON.stringify(requestBody),
-        });
-
-        core.info(`API response status: ${response.status}`);
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          core.error(
-            `API request failed: ${response.status} ${response.statusText}`
+      let attempt = 0;
+      while (attempt <= maxRetries) {
+        try {
+          core.info(
+            `Making AI API request... (attempt ${attempt + 1}/${
+              maxRetries + 1
+            })`
           );
-          core.error(`Response body: ${errorText}`);
-
-          // Use helper for rate limiting and retry logic
-          const shouldRetry = await this.handleRateLimitAndRetry(
-            response,
-            retryCount,
-            maxRetries,
-            baseDelayMs,
-            prompt
+          const queueStatus = globalRequestQueue.getStatus();
+          core.info(
+            `Queue status: ${queueStatus.queueLength} pending, ${queueStatus.activeRequests} active`
           );
-          if (shouldRetry) {
-            return shouldRetry;
+
+          const requestBody = {
+            model: this.model,
+            messages: [
+              {
+                role: 'system',
+                content:
+                  'You are a professional documentation generator. Create well-structured, comprehensive documents based on GitHub discussion content.',
+              },
+              {
+                role: 'user',
+                content: prompt,
+              },
+            ],
+            max_tokens: 4000,
+            temperature: 0.3,
+          };
+
+          const response = await fetch(`${this.baseURL}/chat/completions`, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${this.apiKey}`,
+              'Content-Type': 'application/json',
+              Accept: 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+            },
+            body: JSON.stringify(requestBody),
+          });
+
+          core.info(`API response status: ${response.status}`);
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            core.error(
+              `API request failed: ${response.status} ${response.statusText}`
+            );
+            core.error(`Response body: ${errorText}`);
+
+            // Use helper for rate limiting and retry logic
+            const shouldRetry = await this.handleRateLimitAndRetry(
+              response,
+              attempt,
+              maxRetries,
+              baseDelayMs,
+              prompt
+            );
+            if (shouldRetry) {
+              attempt++;
+              continue;
+            }
+
+            throw new Error(
+              `API request failed: ${response.status} ${response.statusText}`
+            );
           }
 
-          throw new Error(
-            `API request failed: ${response.status} ${response.statusText}`
-          );
+          const data = await response.json();
+          core.info('AI response received successfully');
+
+          if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+            core.error('Invalid API response structure');
+            core.error(`Response: ${JSON.stringify(data, null, 2)}`);
+            throw new Error('Invalid API response structure');
+          }
+
+          return data.choices[0].message.content;
+        } catch (error) {
+          core.error(`AI API call failed: ${error.message}`);
+
+          // Only use fallback after all retries exhausted
+          if (attempt >= maxRetries) {
+            core.error(
+              `All ${
+                maxRetries + 1
+              } attempts failed. Using fallback document generation.`
+            );
+            return this.generateFallbackDocument(prompt);
+          }
+
+          // If this is a network error and we haven't exhausted retries, try again
+          if (
+            attempt < maxRetries &&
+            (error.code === 'ECONNRESET' || error.code === 'ENOTFOUND')
+          ) {
+            const delayMs = baseDelayMs * Math.pow(2, attempt);
+            core.warning(
+              `Network error. Retrying in ${delayMs}ms... (${
+                attempt + 1
+              }/${maxRetries})`
+            );
+            await this.sleep(delayMs);
+            attempt++;
+            continue;
+          }
+
+          throw error;
         }
-
-        const data = await response.json();
-        core.info('AI response received successfully');
-
-        if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-          core.error('Invalid API response structure');
-          core.error(`Response: ${JSON.stringify(data, null, 2)}`);
-          throw new Error('Invalid API response structure');
-        }
-
-        return data.choices[0].message.content;
-      } catch (error) {
-        core.error(`AI API call failed: ${error.message}`);
-
-        // Only use fallback after all retries exhausted
-        if (retryCount >= maxRetries) {
-          core.error(
-            `All ${
-              maxRetries + 1
-            } attempts failed. Using fallback document generation.`
-          );
-          return this.generateFallbackDocument(prompt);
-        }
-
-        // If this is a network error and we haven't exhausted retries, try again
-        if (
-          retryCount < maxRetries &&
-          (error.code === 'ECONNRESET' || error.code === 'ENOTFOUND')
-        ) {
-          const delayMs = baseDelayMs * Math.pow(2, retryCount);
-          core.warning(
-            `Network error. Retrying in ${delayMs}ms... (${
-              retryCount + 1
-            }/${maxRetries})`
-          );
-          await this.sleep(delayMs);
-          return this.generateCompletion(prompt, retryCount + 1);
-        }
-
-        throw error;
       }
     });
   }
