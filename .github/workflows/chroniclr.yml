@@ -51,7 +51,7 @@ jobs:
               return;
             }
 
-            // Use the generic REST request to access the Discussions API to avoid missing namespace issues
+            // Get discussion details
             const { data: discussion } = await github.request(
               'GET /repos/{owner}/{repo}/discussions/{discussion_number}',
               {
@@ -61,9 +61,55 @@ jobs:
               }
             );
 
+            // Get discussion comments using GraphQL
+            const commentsQuery = `
+              query($owner: String!, $name: String!, $number: Int!) {
+                repository(owner: $owner, name: $name) {
+                  discussion(number: $number) {
+                    comments(first: 50) {
+                      nodes {
+                        author {
+                          login
+                        }
+                        body
+                        createdAt
+                        updatedAt
+                      }
+                    }
+                  }
+                }
+              }
+            `;
+            
+            let comments = [];
+            try {
+              const commentsResult = await github.graphql(commentsQuery, {
+                owner: context.repo.owner,
+                name: context.repo.repo,
+                number: Number(discussionNumber)
+              });
+              
+              comments = commentsResult.repository.discussion.comments.nodes || [];
+              core.info(`Found ${comments.length} comments for discussion #${discussionNumber}`);
+            } catch (error) {
+              core.warning(`Failed to fetch comments: ${error.message}`);
+            }
+
+            // Combine discussion body with comments for AI processing
+            let fullContent = discussion.body;
+            if (comments.length > 0) {
+              fullContent += '\n\n--- DISCUSSION COMMENTS ---\n\n';
+              comments.forEach((comment, index) => {
+                fullContent += `**Comment ${index + 1} by @${comment.author.login} (${comment.createdAt}):**\n`;
+                fullContent += comment.body + '\n\n';
+              });
+            }
+
             core.setOutput('number', discussion.number);
             core.setOutput('title', discussion.title);
             core.setOutput('body', discussion.body);
+            core.setOutput('full_content', fullContent);
+            core.setOutput('comments_count', comments.length);
             core.setOutput('labels', JSON.stringify(discussion.labels || []));
             core.setOutput('author', discussion.user.login);
             core.setOutput('url', discussion.html_url);
@@ -89,10 +135,12 @@ jobs:
           DOC_TYPES: ${{ steps.doc-types.outputs.document_types }}
           DISCUSSION_NUMBER: ${{ steps.discussion.outputs.number }}
           DISCUSSION_TITLE: ${{ steps.discussion.outputs.title }}
-          DISCUSSION_BODY: ${{ steps.discussion.outputs.body }}
+          DISCUSSION_BODY: ${{ steps.discussion.outputs.full_content }}
           DISCUSSION_AUTHOR: ${{ steps.discussion.outputs.author }}
           DISCUSSION_URL: ${{ steps.discussion.outputs.url }}
+          COMMENTS_COUNT: ${{ steps.discussion.outputs.comments_count }}
         run: |
+          echo "Processing discussion with $COMMENTS_COUNT comments"
           for doc_type in $DOC_TYPES; do
             DOC_TYPE=$doc_type npm run generate-document
           done

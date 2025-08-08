@@ -199,8 +199,18 @@ Please refer to the original discussion for full details.
   async generateDocument(docType, discussionData) {
     const template = await this.loadTemplate(docType);
     
+    // Log if we have comments in the content
+    const hasComments = discussionData.body.includes('--- DISCUSSION COMMENTS ---');
+    const commentsCount = hasComments ? 
+      (discussionData.body.match(/\*\*Comment \d+ by @/g) || []).length : 0;
+    
+    core.info(`Processing discussion for ${docType} generation:`);
+    core.info(`- Main discussion content: ${discussionData.body.split('--- DISCUSSION COMMENTS ---')[0].length} characters`);
+    core.info(`- Comments included: ${hasComments ? 'Yes' : 'No'}`);
+    core.info(`- Number of comments: ${commentsCount}`);
+    
     const prompt = `
-Based on the following GitHub discussion, generate a ${docType} document using this template structure:
+Based on the following GitHub discussion (including all comments), generate a ${docType} document using this template structure:
 
 Template:
 ${template}
@@ -209,18 +219,31 @@ Discussion Details:
 - Title: ${discussionData.title}
 - Author: ${discussionData.author}
 - URL: ${discussionData.url}
-- Content:
+- Full Discussion Content (main post + all comments):
 ${discussionData.body}
 
 Instructions:
-1. Extract relevant information from the discussion content
-2. Fill in the template variables with appropriate content
-3. Maintain professional tone and clear structure
-4. Include specific details, action items, and key decisions
-5. Replace {discussionNumber} with ${discussionData.number}
-6. Return only the final document content, no explanations
+1. Analyze BOTH the main discussion post AND all comments for comprehensive information
+2. Extract key insights, decisions, and action items from the entire conversation thread
+3. Identify stakeholders mentioned in comments and their contributions
+4. Synthesize information from multiple participants into cohesive sections
+5. Prioritize information based on frequency of mention and importance across comments
+6. Fill in template variables with comprehensive content from the full discussion
+7. Maintain professional tone while capturing diverse viewpoints from comments
+8. Include specific details, action items, timelines, and technical specifications mentioned
+9. Replace {discussionNumber} with ${discussionData.number}
+10. Return only the final document content, no explanations
 
-Generate the ${docType} document now:
+Key areas to focus on when processing comments:
+- Technical implementation details and code suggestions
+- User feedback and feature requests
+- Progress updates and status reports
+- Decisions made and rationale provided
+- Action items with assigned owners and deadlines
+- Concerns raised and mitigation strategies
+- Alternative approaches and recommendations
+
+Generate the comprehensive ${docType} document now:
 `;
 
     try {
