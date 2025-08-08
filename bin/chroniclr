@@ -1,0 +1,118 @@
+#!/usr/bin/env node
+
+/**
+ * Chroniclr CLI - AI-powered documentation automation
+ * Main command-line interface for all Chroniclr commands
+ */
+
+const path = require('path');
+const SummaryGenerator = require('../src/generators/summary-generator');
+
+const commands = {
+  'generate-summary': {
+    description: 'Generate a project summary document from a GitHub discussion',
+    usage: 'chroniclr generate-summary <discussion-url>',
+    handler: handleGenerateSummary
+  },
+  'help': {
+    description: 'Show help information',
+    usage: 'chroniclr help [command]',
+    handler: handleHelp
+  }
+};
+
+async function handleGenerateSummary(args) {
+  if (args.length === 0) {
+    console.error('❌ Error: Discussion URL is required');
+    console.error('Usage: chroniclr generate-summary <discussion-url>');
+    console.error('Example: chroniclr generate-summary https://github.com/owner/repo/discussions/123');
+    process.exit(1);
+  }
+
+  const discussionUrl = args[0];
+  console.log(`🔍 Analyzing discussion: ${discussionUrl}`);
+  
+  try {
+    const generator = new SummaryGenerator();
+    const result = await generator.generateDocument(discussionUrl);
+    
+    if (result.success) {
+      console.log('✅ Summary generated successfully!');
+      console.log(`📁 Output: ${result.outputPath}`);
+      console.log(`📊 Status: ${result.discussion.status}`);
+      console.log(`📈 Progress: ${result.discussion.progress}%`);
+      console.log(`🔗 Original Discussion: ${discussionUrl}`);
+      
+      // Show key information extracted
+      console.log('\n📋 Key Information Extracted:');
+      console.log(`   Title: ${result.discussion.title}`);
+      console.log(`   Phase: ${result.discussion.currentPhase}`);
+      console.log(`   Next Milestone: ${result.discussion.nextMilestone}`);
+      
+    } else {
+      console.error(`❌ Failed to generate summary: ${result.error}`);
+      process.exit(1);
+    }
+  } catch (error) {
+    console.error(`❌ Unexpected error: ${error.message}`);
+    process.exit(1);
+  }
+}
+
+function handleHelp(args) {
+  if (args.length > 0) {
+    const command = args[0];
+    if (commands[command]) {
+      console.log(`\n${commands[command].description}`);
+      console.log(`Usage: ${commands[command].usage}`);
+      return;
+    } else {
+      console.log(`❌ Unknown command: ${command}`);
+    }
+  }
+  
+  console.log(`
+🤖 Chroniclr - AI-powered documentation automation
+
+Available Commands:
+`);
+  
+  Object.entries(commands).forEach(([name, info]) => {
+    console.log(`  ${name.padEnd(16)} ${info.description}`);
+  });
+  
+  console.log(`
+Usage:
+  chroniclr <command> [arguments]
+  chroniclr help <command>    Show detailed help for a command
+
+Examples:
+  chroniclr generate-summary https://github.com/microsoft/vscode/discussions/1234
+  chroniclr help generate-summary
+`);
+}
+
+// Parse command line arguments
+function main() {
+  const args = process.argv.slice(2);
+  
+  if (args.length === 0) {
+    handleHelp([]);
+    return;
+  }
+  
+  const command = args[0];
+  const commandArgs = args.slice(1);
+  
+  if (commands[command]) {
+    commands[command].handler(commandArgs);
+  } else {
+    console.error(`❌ Unknown command: ${command}`);
+    console.error('Run "chroniclr help" to see available commands');
+    process.exit(1);
+  }
+}
+
+if (require.main === module) {
+  main();
+}

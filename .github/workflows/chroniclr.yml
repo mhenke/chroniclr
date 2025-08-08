@@ -15,6 +15,7 @@ permissions:
   contents: write
   discussions: read
   pull-requests: write
+  models: read
 
 jobs:
   generate-docs:
@@ -33,16 +34,6 @@ jobs:
     - name: Install dependencies
       run: npm ci
       
-    - name: Setup Claude Code
-      run: |
-        curl -fsSL claude.ai/install.sh | bash
-        echo "$HOME/.local/bin" >> $GITHUB_PATH
-        
-    - name: Configure Claude Code
-      env:
-        ANTHROPIC_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
-      run: |
-        claude-code auth login --api-key $ANTHROPIC_API_KEY
         
     - name: Get discussion details
       id: discussion
@@ -88,22 +79,15 @@ jobs:
     - name: Generate documentation
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        ANTHROPIC_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+        DOC_TYPES: ${{ steps.doc-types.outputs.document_types }}
         DISCUSSION_NUMBER: ${{ steps.discussion.outputs.number }}
         DISCUSSION_TITLE: ${{ steps.discussion.outputs.title }}
         DISCUSSION_BODY: ${{ steps.discussion.outputs.body }}
         DISCUSSION_AUTHOR: ${{ steps.discussion.outputs.author }}
         DISCUSSION_URL: ${{ steps.discussion.outputs.url }}
-        DOC_TYPES: ${{ steps.doc-types.outputs.document_types }}
       run: |
         for doc_type in $DOC_TYPES; do
-          claude-code run .claude/agents/document-generator.md \
-            --doc-type="$doc_type" \
-            --discussion-number="$DISCUSSION_NUMBER" \
-            --discussion-title="$DISCUSSION_TITLE" \
-            --discussion-body="$DISCUSSION_BODY" \
-            --discussion-author="$DISCUSSION_AUTHOR" \
-            --discussion-url="$DISCUSSION_URL"
+          DOC_TYPE=$doc_type npm run generate-document
         done
         
     - name: Create Pull Request
