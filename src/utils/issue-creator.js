@@ -42,7 +42,7 @@ class ActionItemIssueCreator {
 
   parseHashtagLabels(text) {
     const labels = new Set();
-    if (!text) return [];
+    if (!text || typeof text !== 'string') return [];
     const re = /#([a-z0-9][a-z0-9-_]*)/gi;
     let m;
     while ((m = re.exec(text)) !== null) {
@@ -522,6 +522,13 @@ class ActionItemIssueCreator {
       const cfg = this.getLabelConfig();
 
       // Parse action items from discussion content
+      if (!discussionData.body) {
+        core.warning(
+          'Discussion body is undefined or empty. No action items to process.'
+        );
+        return;
+      }
+
       const actionItems = this.parseActionItems(discussionData.body);
       core.info(`Found ${actionItems.length} action items in discussion`);
 
@@ -534,9 +541,11 @@ class ActionItemIssueCreator {
       }
       if (cfg.enableHashtagLabels) {
         for (const ai of actionItems) {
-          this.parseHashtagLabels(ai.description).forEach((l) =>
-            ensureSet.add(l)
-          );
+          if (ai && ai.description) {
+            this.parseHashtagLabels(ai.description).forEach((l) =>
+              ensureSet.add(l)
+            );
+          }
         }
       }
 
@@ -629,12 +638,32 @@ class ActionItemIssueCreator {
 
 async function run() {
   try {
+    // Check if the required properties exist
+    if (!github.context.issue) {
+      core.setFailed(
+        'No issue or discussion context found. Are you running from a workflow?'
+      );
+      return;
+    }
+
     const discussionData = {
       number: github.context.issue.number,
       title: github.context.issue.title,
       url: github.context.issue.html_url,
       body: github.context.issue.body,
     };
+
+    // Log some debug information
+    core.info(
+      `Processing discussion #${discussionData.number}: ${discussionData.title}`
+    );
+    core.info(
+      `Body content: ${
+        discussionData.body
+          ? 'Present (length: ' + discussionData.body.length + ')'
+          : 'Missing'
+      }`
+    );
 
     const creator = new ActionItemIssueCreator();
     await creator.processActionItems(discussionData);
