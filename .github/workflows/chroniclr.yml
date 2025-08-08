@@ -15,13 +15,14 @@ permissions:
   contents: write
   discussions: read
   pull-requests: write
+  issues: write
   models: read
 
 jobs:
   generate-docs:
     runs-on: ubuntu-latest
     concurrency:
-      group: chroniclr-docs-${{ github.event_name }}-${{ github.event.inputs.discussion_number || 'manual' }}
+      group: chroniclr-docs-${{ github.event_name }}-${{ github.event.discussion.number || github.event.inputs.discussion_number || 'manual' }}
       cancel-in-progress: true
 
     steps:
@@ -96,6 +97,22 @@ jobs:
             DOC_TYPE=$doc_type npm run generate-document
           done
 
+      - name: Ensure labels exist
+        if: success()
+        uses: peter-evans/create-or-update-labels@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          labels: |
+            - name: documentation
+              color: 0075ca
+              description: Documentation updates
+            - name: automated
+              color: 5319e7
+              description: Created by automation
+            - name: chroniclr
+              color: 0e8a16
+              description: Chroniclr generated
+
       - name: Create Pull Request
         id: cpr
         continue-on-error: true
@@ -131,7 +148,7 @@ jobs:
       - name: Summarize PR creation
         if: always()
         run: |
-          if [ "${{ steps.cpr.outcome }}" = "success" ]; then
+          if [ -n "${{ steps.cpr.outputs.pull-request-url }}" ]; then
             {
               echo "PR created or updated successfully."
               echo
