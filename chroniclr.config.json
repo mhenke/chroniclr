@@ -13,7 +13,12 @@
       "initiative": ["initiative-brief"],
       "release": ["changelog"],
       "feature": ["initiative-brief", "summary"],
-      "planning": ["meeting-notes", "summary"]
+      "planning": ["meeting-notes", "summary"],
+      "pr-summary": ["pr-summary"],
+      "pr-impact": ["pr-change-impact-assessment"],
+      "pr-review": ["pr-review-report"],
+      "pr-validation": ["pr-validation-checklist"],
+      "pr-release": ["pr-release-notes"]
     }
   },
   "documents": {
@@ -26,7 +31,12 @@
       "sprint-report": "src/templates/sprint-report.md",
       "epic-summary": "src/templates/epic-summary.md",
       "project-dashboard": "src/templates/project-dashboard.md",
-      "release-notes": "src/templates/release-notes.md"
+      "release-notes": "src/templates/release-notes.md",
+      "pr-summary": "src/templates/pr-summary.md",
+      "pr-change-impact-assessment": "src/templates/pr-change-impact-assessment.md",
+      "pr-review-report": "src/templates/pr-review-report.md",
+      "pr-validation-checklist": "src/templates/pr-validation-checklist.md",
+      "pr-release-notes": "src/templates/pr-release-notes.md"
     },
     "autoGenerate": true,
     "createPR": true,
