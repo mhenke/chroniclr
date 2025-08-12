@@ -19,7 +19,17 @@ class PullRequestClient {
 
   loadConfiguration() {
     try {
-      const configPa  /**
+      const configPath = path.join(process.cwd(), 'chroniclr.config.json');
+      const configData = fs.readFileSync(configPath, 'utf8');
+      const config = JSON.parse(configData);
+      return config.pullRequests || { enabled: false, modules: {} };
+    } catch (error) {
+      core.warning(`Failed to load PR configuration: ${error.message}`);
+      return { enabled: false, modules: {} };
+    }
+  }
+
+  /**
    * Apply additional filters based on configuration
    */
   applyConfigFilters(prs) {
@@ -57,19 +67,7 @@ class PullRequestClient {
       return true;
     });
   }
-  
-  /**
-   * Get comprehensive PR data for analysis
-   */
-  async getPullRequestData(prNumber = null) { path.join(process.cwd(), 'chroniclr.config.json');
-      const configData = fs.readFileSync(configPath, 'utf8');
-      const config = JSON.parse(configData);
-      return config.pullRequests || { enabled: false, modules: {} };
-    } catch (error) {
-      core.warning(`Failed to load PR configuration: ${error.message}`);
-      return { enabled: false, modules: {} };
-    }
-  }
+
 
   isEnabled() {
     return this.config.enabled;
