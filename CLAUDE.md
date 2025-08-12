@@ -4,34 +4,76 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Chroniclr** is an AI-powered documentation automation system that generates project documentation from GitHub discussions. The system uses GitHub Actions, GitHub Models API (GPT-4o), and JavaScript-based document generation to automatically create summaries, initiative briefs, changelogs, and meeting notes.
+**Chroniclr** is a comprehensive AI-powered project intelligence system that generates documentation from multiple data sources: GitHub discussions, Jira projects, and pull requests. The modular architecture allows runtime selection of data sources to create targeted documentation for different audiences and purposes.
 
 ## Core Architecture
 
+### Modular Data Source System
+Chroniclr operates as a modular system where data sources can be selected at runtime. The system has two core functions (AI processing and cross-platform correlation) that operate on the selected data sources:
+
+**Data Sources:**
+- `discussion` - GitHub discussion content, comments, and community engagement analysis
+- `jira` - Jira project data (sprints, epics, issues, metrics)
+- `pr` - Pull request analysis and file change impact assessment
+- `issues` - Action item extraction and GitHub issue creation
+
+**Core Functions (always available):**
+- **AI Processing** - Uses GitHub Models API (GPT-4o) to generate documents from selected data sources
+- **Cross-Platform Correlation** - Automatically links related artifacts across data sources when multiple sources are selected
+
+**Runtime Source Selection:**
+```bash
+# Discussion data only
+gh workflow run chroniclr.yml -f discussion_number=123 -f source=discussion
+
+# Jira project data only  
+gh workflow run chroniclr.yml -f discussion_number=123 -f source=jira
+
+# Pull request analysis only
+gh workflow run chroniclr.yml -f discussion_number=123 -f source=pr
+
+# Multi-source with automatic correlation
+gh workflow run chroniclr.yml -f discussion_number=123 -f source=jira,pr
+
+# All data sources
+gh workflow run chroniclr.yml -f discussion_number=123 -f source=discussion,jira,pr,issues
+```
+
 ### AI-Powered Document Generation  
-The system processes GitHub discussions (including all comments and reactions) using GitHub's built-in AI models:
 - **AI Engine**: GitHub Models API (`https://models.github.ai/inference`) using GPT-4o
-- **Authentication**: Built-in `GITHUB_TOKEN` with `models: read` permission  
-- **Content Processing**: Analyzes full discussion threads (main post + all comments + emoji reactions)
-- **Rate Limiting**: Intelligent retry logic with exponential backoff for 429 errors
-- **Community Engagement**: Prioritizes content based on reaction patterns (👍, ❤️, 🚀, 👎)
-- **Template System**: Combines AI-generated content with markdown templates
+- **Multi-Source Processing**: Combines GitHub discussions, Jira data, and PR analysis
+- **Community Engagement**: Prioritizes content based on emoji reaction patterns
+- **Cross-Platform Correlation**: Links discussions → Jira epics → PR implementations
+- **Rate Limiting**: Request queue with exponential backoff for API constraints
+- **Template System**: Source-aware templates with intelligent variable substitution
 
-### Label-Based Document Routing
-The system maps GitHub discussion labels to document types via `chroniclr.config.json`:
-- `documentation` → summary + meeting-notes
-- `initiative` → initiative-brief
-- `feature` → initiative-brief + summary  
-- `release` → changelog
-- `planning` → meeting-notes + summary
+### Document Type Generation by Source
+Different data sources generate different document types:
 
-### Workflow Architecture
-Document generation follows this pipeline:
-1. **GitHub Actions** triggers on discussion events (created/edited)
-2. **Discussion Extraction** fetches discussion + comments via REST API and GraphQL
-3. **Label Processing** (`npm run process-labels`) determines document types from labels
-4. **AI Generation** (`npm run generate-document`) processes full content with GitHub Models API
-5. **PR Creation** automatically creates PRs with branch naming: `docs/chroniclr-{discussion-number}`
+**Discussion Source (`source=discussion`):**
+- Maps labels to document types: `documentation` → summary, `initiative` → initiative-brief
+- Uses traditional discussion + comments processing with community engagement analysis
+
+**Jira Source (`source=jira`):**
+- `sprint-report` - Current sprint status, velocity, team workload
+- `epic-summary` - Epic completion, user stories, progress tracking  
+- `project-dashboard` - Executive project health, metrics, risk assessment
+
+**Pull Request Source (`source=pr`):**
+- `release-notes` - Automated release documentation from merged PRs
+- `change-impact-report` - Technical change analysis, testing recommendations
+
+**Multi-Source Correlation (automatic when using multiple sources):**
+- `feature-completion` - End-to-end feature tracking (Discussion → Jira → PR → Delivery)
+- Cross-references and timeline generation across platforms
+
+### Modular Processing Pipeline
+1. **Runtime Source Selection** - Parse `source` parameter from workflow input
+2. **Data Source Initialization** - Enable only requested modules (`ModularController`)
+3. **Multi-Source Data Gathering** - Fetch data from enabled sources (GitHub, Jira, PR APIs)
+4. **Cross-Platform Correlation** - Link related artifacts across platforms when enabled
+5. **AI Document Generation** - Process combined data with source-specific templates
+6. **Independent Processing** - Each source operates independently with graceful degradation
 
 ### Content Processing Pipeline
 The AI document generator (`src/generators/ai-document-generator.js`):
@@ -61,31 +103,45 @@ npm run create-action-items  # Test action item parsing and GitHub issue creatio
 # Run tests (if available)
 npm test                      # Run Jest test suite
 
-# Manual workflow testing
-gh workflow run chroniclr.yml -f discussion_number=123
+# Manual workflow testing with different data sources
+gh workflow run chroniclr.yml -f discussion_number=123 -f source=discussion
+gh workflow run chroniclr.yml -f discussion_number=123 -f source=jira
+gh workflow run chroniclr.yml -f discussion_number=123 -f source=pr
+gh workflow run chroniclr.yml -f discussion_number=123 -f source=jira,pr
+gh workflow run chroniclr.yml -f discussion_number=123 -f source=discussion,jira,pr,issues
 
-# Test locally with environment variables (now includes reaction analysis)
-DOC_TYPE=summary \
+# Test modular system independently
+node src/utils/module-runner.js status              # Check module status
+node src/utils/module-runner.js test-deps          # Test module dependencies
+node src/utils/module-runner.js run jira-enrichment
+node src/utils/module-runner.js run pr-analysis
+node src/utils/module-runner.js run cross-platform-correlation
+
+# Test locally with environment variables (multi-source)
+DOC_TYPE=sprint-report \
 DISCUSSION_NUMBER=123 \
-DISCUSSION_TITLE="Test Discussion" \
-DISCUSSION_BODY="Discussion content with comments..." \
-DISCUSSION_AUTHOR="username" \
-DISCUSSION_URL="https://github.com/owner/repo/discussions/123" \
-GITHUB_REPOSITORY="owner/repo" \
-GITHUB_TOKEN="your_token" \
+JIRA_BASE_URL="https://company.atlassian.net" \
+JIRA_API_TOKEN="token" \
+JIRA_USER_EMAIL="bot@company.com" \
 npm run generate-document
 
 # Test individual components
 node -e "
-const { GitHubReactionsClient } = require('./src/utils/github-reactions');
-const client = new GitHubReactionsClient();
-client.getDiscussionEngagementData('owner', 'repo', 123).then(console.log);
+const { JiraClient } = require('./src/utils/jira-client');
+const client = new JiraClient();
+console.log('Jira status:', client.getStatus());
 "
 
-# Test rate limiting queue
 node -e "
-const { globalRequestQueue } = require('./src/utils/request-queue');
-console.log('Queue status:', globalRequestQueue.getStatus());
+const { PullRequestClient } = require('./src/utils/pr-client');
+const client = new PullRequestClient();
+console.log('PR client enabled:', client.isEnabled());
+"
+
+node -e "
+const { CrossPlatformCorrelator } = require('./src/utils/cross-platform-correlator');
+const correlator = new CrossPlatformCorrelator();
+console.log('Correlation enabled:', correlator.isEnabled());
 "
 ```
 
@@ -128,11 +184,24 @@ Templates in `src/templates/` use `{variableName}` syntax for AI variable substi
 - **Footer**: Always include generation metadata
 
 ### Built-in Templates
+
+**Discussion-Source Templates:**
 - `summary.md`: Project overviews, objectives, current status
-- `summary-enhanced.md`: **NEW** - Includes community engagement metrics and reaction analysis
 - `initiative-brief.md`: Problem statements, solutions, timelines  
 - `meeting-notes.md`: Agendas, decisions, action items
 - `changelog.md`: Version history, features, fixes
+
+**Jira-Source Templates:**
+- `sprint-report.md`: Sprint metrics, velocity, team capacity, completion status
+- `epic-summary.md`: Epic progress, user stories, timeline, stakeholder communication
+- `project-dashboard.md`: Executive summary, project health, risk assessment
+- `release-notes.md`: Release documentation with story points and delivery metrics
+
+**PR-Source Templates:**
+- `change-impact-report.md`: Technical change analysis, risk assessment, testing needs
+
+**Multi-Source Templates (correlation):**
+- `feature-completion.md`: Cross-platform correlation tracking (Discussion → Jira → PR)
 
 ### Fallback Generation
 If AI processing fails, the generator uses templates with `[AI processing unavailable]` placeholders for complex variables while still populating basic fields like `{title}` and `{discussionNumber}`.
@@ -151,12 +220,26 @@ If AI processing fails, the generator uses templates with `[AI processing unavai
 ## Key Files and Architecture
 
 ### Core Processing Files
-- `src/generators/ai-document-generator.js`: Main AI processing logic using GitHub Models API with rate limiting
-- `src/utils/github-reactions.js`: **NEW** - Community engagement analysis via GraphQL reactions API
-- `src/utils/request-queue.js`: **NEW** - API rate limiting and request queue management
-- `src/utils/validate-discussion.js`: Validates required discussion fields
-- `src/utils/process-labels.js`: Maps discussion labels to document types
-- `chroniclr.config.json`: Central configuration for label mappings and templates
+
+**Main Controllers:**
+- `src/utils/modular-controller.js`: Central orchestrator for all modules and data sources
+- `src/utils/module-runner.js`: Independent module testing and execution utility
+
+**Data Source Clients:**
+- `src/generators/ai-document-generator.js`: Multi-source AI document generation with rate limiting
+- `src/utils/pr-client.js`: Pull request analysis, file change detection, release note generation
+- `src/utils/jira-client.js`: Jira project data extraction with comprehensive API access
+- `src/utils/cross-platform-correlator.js`: Links discussions, Jira issues, and PRs intelligently
+
+**Analysis Engines:**
+- `src/utils/file-analyzer.js`: Code change impact analysis, risk assessment, testing recommendations
+- `src/utils/github-reactions.js`: Community engagement analysis via GraphQL reactions API
+- `src/utils/jira-query-builder.js`: JQL template system for different reporting scenarios
+
+**Infrastructure:**
+- `src/utils/request-queue.js`: API rate limiting and request queue management
+- `src/utils/issue-creator.js`: Enhanced action item processing with deduplication and lifecycle management
+- `chroniclr.config.json`: Modular configuration system with per-module settings
 
 ### GitHub Actions Workflow
 - `.github/workflows/chroniclr.yml`: Complete automation pipeline

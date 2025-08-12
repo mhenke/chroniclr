@@ -22,7 +22,11 @@
       "summary": "src/templates/summary.md",
       "initiative-brief": "src/templates/initiative-brief.md",
       "changelog": "src/templates/changelog.md",
-      "meeting-notes": "src/templates/meeting-notes.md"
+      "meeting-notes": "src/templates/meeting-notes.md",
+      "sprint-report": "src/templates/sprint-report.md",
+      "epic-summary": "src/templates/epic-summary.md",
+      "project-dashboard": "src/templates/project-dashboard.md",
+      "release-notes": "src/templates/release-notes.md"
     },
     "autoGenerate": true,
     "createPR": true,
@@ -35,8 +39,87 @@
     "maxTokens": 4000,
     "temperature": 0.3
   },
+  "jira": {
+    "enabled": false,
+    "baseUrl": "",
+    "defaultProject": "",
+    "authentication": {
+      "userEmail": "",
+      "apiTokenSecret": "JIRA_API_TOKEN"
+    },
+    "documentTypes": {
+      "sprint-report": ["sprint", "development"],
+      "epic-summary": ["epic", "initiative"],
+      "project-dashboard": ["dashboard", "management"],
+      "release-notes": ["release", "deployment"]
+    },
+    "queries": {
+      "currentSprint": "project = '{project}' AND sprint in openSprints() ORDER BY priority DESC",
+      "completedEpic": "project = '{project}' AND type = Epic AND status = Done AND updatedDate >= -{days}d",
+      "blockedIssues": "project = '{project}' AND status = Blocked ORDER BY priority DESC",
+      "recentlyCompleted": "project = '{project}' AND status = Done AND updatedDate >= -{days}d ORDER BY updatedDate DESC",
+      "upcomingWork": "project = '{project}' AND sprint in futureSprints() ORDER BY priority DESC"
+    },
+    "rateLimiting": {
+      "requestsPerMinute": 100,
+      "retryAttempts": 3,
+      "backoffMultiplier": 2
+    },
+    "caching": {
+      "enabled": true,
+      "ttlMinutes": 15
+    }
+  },
+  "issues": {
+    "defaultLabels": ["action-item", "chroniclr-generated", "needs-triage"],
+    "enablePriorityLabels": true,
+    "enableHashtagLabels": true
+  },
+  "pullRequests": {
+    "enabled": false,
+    "modules": {
+      "prAnalysis": {
+        "enabled": false,
+        "triggers": ["opened", "closed", "synchronize"]
+      },
+      "mergedPrProcessing": {
+        "enabled": false,
+        "autoReleaseNotes": false,
+        "autoChangelogUpdate": false,
+        "autoDocumentationUpdate": false
+      },
+      "fileChangeAnalysis": {
+        "enabled": false,
+        "riskAssessment": false,
+        "impactDetection": false,
+        "testingRecommendations": false
+      },
+      "jiraIntegration": {
+        "enabled": false,
+        "extractKeysFromPr": false,
+        "crossReference": false
+      },
+      "releaseManagement": {
+        "enabled": false,
+        "autoUpdateIssues": false,
+        "releaseIssueLabel": "release-notes",
+        "changelogFormat": "compact"
+      },
+      "stakeholderNotifications": {
+        "enabled": false,
+        "notifyTeams": false,
+        "generateReports": false
+      }
+    }
+  },
+  "correlation": {
+    "enabled": false,
+    "autoDetection": true,
+    "crossReferenceAnalysis": true,
+    "timelineGeneration": true
+  },
   "workflow": {
-    "triggers": ["discussion_created", "discussion_edited"],
+    "triggers": ["discussion_created", "discussion_edited", "pull_request_merged"],
     "requiredApprovals": 1,
     "branchPrefix": "docs/chroniclr-",
     "commitMessage": "📚 Update documentation via Chroniclr"

@@ -345,6 +345,40 @@ Please refer to the original discussion for full details.
       }
     }
 
+    // Fetch Jira enrichment data if available
+    let jiraData = null;
+    try {
+      const { JiraClient } = require('../utils/jira-client');
+      const jiraClient = new JiraClient();
+      
+      if (jiraClient.isEnabled()) {
+        core.info('Fetching Jira enrichment data...');
+        jiraData = await jiraClient.getEnrichedProjectData({
+          includeCurrentSprint: docType.includes('sprint') || docType.includes('summary'),
+          includeCompletedEpics: docType.includes('epic') || docType.includes('initiative'),
+          includeBlockedIssues: docType.includes('dashboard') || docType.includes('summary'),
+          includeRecentWork: docType.includes('summary') || docType.includes('dashboard'),
+          recentWorkDays: 7,
+          epicHistoryDays: 30
+        });
+        
+        if (jiraData) {
+          core.info(`- Jira data: ${jiraData.project.name} project enrichment loaded`);
+          if (jiraData.currentSprint) {
+            core.info(`  - Current sprint: ${jiraData.currentSprint.total} issues`);
+          }
+          if (jiraData.completedEpics) {
+            core.info(`  - Completed epics: ${jiraData.completedEpics.total} epics`);
+          }
+          if (jiraData.blockedIssues) {
+            core.info(`  - Blocked issues: ${jiraData.blockedIssues.total} issues`);
+          }
+        }
+      }
+    } catch (error) {
+      core.warning(`Could not fetch Jira data: ${error.message}`);
+    }
+
     core.info(`Processing discussion for ${docType} generation:`);
     core.info(
       `- Main discussion content: ${
@@ -392,6 +426,57 @@ ${engagementData.summary.controversialContent
 `;
     }
 
+    // Build Jira context for AI prompt
+    let jiraContext = '';
+    if (jiraData) {
+      jiraContext = `
+
+Jira Project Data Enrichment (${jiraData.project.name}):
+Project: ${jiraData.project.name} (${jiraData.project.key})
+${jiraData.project.description ? `Description: ${jiraData.project.description}` : ''}
+
+${jiraData.currentSprint ? `
+Current Sprint Status:
+- Active Issues: ${jiraData.currentSprint.total}
+- Key Issues in Progress:
+${jiraData.currentSprint.issues.slice(0, 5).map(issue => 
+  `  * ${issue.key}: ${issue.summary} (${issue.status}, ${issue.assignee})`
+).join('\n')}` : ''}
+
+${jiraData.completedEpics ? `
+Recently Completed Epics:
+- Total Completed: ${jiraData.completedEpics.total}
+- Key Achievements:
+${jiraData.completedEpics.epics.slice(0, 3).map(epic => 
+  `  * ${epic.key}: ${epic.summary} (${epic.assignee})`
+).join('\n')}` : ''}
+
+${jiraData.blockedIssues && jiraData.blockedIssues.total > 0 ? `
+Current Blockers & Risks:
+- Blocked Issues: ${jiraData.blockedIssues.total}
+- Critical Blockers:
+${jiraData.blockedIssues.issues.slice(0, 3).map(issue => 
+  `  * ${issue.key}: ${issue.summary} (${issue.priority}, ${issue.assignee})`
+).join('\n')}` : ''}
+
+${jiraData.recentlyCompleted ? `
+Recent Progress (Last 7 days):
+- Completed Issues: ${jiraData.recentlyCompleted.total}
+- Key Deliveries:
+${jiraData.recentlyCompleted.issues.slice(0, 5).map(issue => 
+  `  * ${issue.key}: ${issue.summary}${issue.storyPoints ? ` (${issue.storyPoints} pts)` : ''}`
+).join('\n')}` : ''}
+
+IMPORTANT: Use this Jira data to enrich the document with:
+- Real project status and progress metrics
+- Actual work items and their current states  
+- Specific team member assignments and workloads
+- Concrete blockers and risks that need attention
+- Quantified delivery metrics (story points, completion rates)
+- Cross-reference discussion topics with actual Jira issues when relevant
+`;
+    }
+
     const prompt = `
 Based on the following GitHub discussion (including all comments and community engagement), generate a ${docType} document using this template structure:
 
@@ -403,7 +488,7 @@ Discussion Details:
 - Author: ${discussionData.author}
 - URL: ${discussionData.url}
 - Full Discussion Content (main post + all comments):
-${discussionData.body}${engagementContext}
+${discussionData.body}${engagementContext}${jiraContext}
 
 Instructions:
 1. Analyze BOTH the main discussion post AND all comments for comprehensive information
@@ -412,11 +497,13 @@ Instructions:
 4. Synthesize information from multiple participants into cohesive sections
 5. Prioritize information based on frequency of mention, importance, AND community engagement (reactions)
 6. Give extra weight to highly-reacted content and controversial points that need attention
-7. Fill in template variables with comprehensive content from the full discussion
-8. Maintain professional tone while capturing diverse viewpoints from comments
-9. Include specific details, action items, timelines, and technical specifications mentioned
-10. Replace {discussionNumber} with ${discussionData.number}
-11. Return only the final document content, no explanations
+7. ${jiraData ? 'ENRICH with Jira project data: Include actual work items, progress metrics, team assignments, and blockers from the Jira context above' : 'Focus on discussion content as primary source'}
+8. ${jiraData ? 'Cross-reference discussion topics with real Jira issues when relevant and include specific issue keys' : 'Use discussion content for all metrics and progress updates'}
+9. Fill in template variables with comprehensive content from the full discussion${jiraData ? ' and Jira enrichment data' : ''}
+10. Maintain professional tone while capturing diverse viewpoints from comments
+11. Include specific details, action items, timelines, and technical specifications mentioned
+12. Replace {discussionNumber} with ${discussionData.number}
+13. Return only the final document content, no explanations
 
 Key areas to focus on when processing comments:
 - Technical implementation details and code suggestions

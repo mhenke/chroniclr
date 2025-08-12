@@ -7,9 +7,47 @@ on:
   workflow_dispatch:
     inputs:
       discussion_number:
-        description: 'Discussion number to process'
-        required: true
+        description: 'Discussion number to process (required only if source includes discussion)'
+        required: false
         type: string
+      source:
+        description: 'Data sources for documentation (comma-separated: discussion,jira,pr,issues)'
+        required: false
+        type: string
+        default: 'discussion'
+      pr_numbers:
+        description: 'Pull request numbers to process (comma-separated, e.g., "123,456")'
+        required: false
+        type: string
+      jira_keys:
+        description: 'Jira issue keys to find related PRs (comma-separated, e.g., "PROJ-123,PROJ-456")'
+        required: false
+        type: string
+      discovery_scope:
+        description: 'Discovery scope for automated searches'
+        required: false
+        type: choice
+        options:
+          - recent
+          - sprint
+          - milestone
+          - all
+        default: 'recent'
+      max_discoveries:
+        description: 'Maximum number of items to discover automatically (default: 20)'
+        required: false
+        type: string
+        default: '20'
+      batch_size:
+        description: 'API batch size for performance optimization (default: 10)'
+        required: false
+        type: string
+        default: '10'
+      dry_run:
+        description: 'Preview what would be processed without generating docs'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -45,9 +83,25 @@ jobs:
           script: |
             const discussionNumber = context.payload.discussion?.number || 
                                     context.payload.inputs?.discussion_number;
+            const sourceModules = context.payload.inputs?.source || 'discussion';
 
+            // Only require discussion number if 'discussion' is in the source modules
+            if (!discussionNumber && sourceModules.includes('discussion')) {
+              core.setFailed('Discussion number is required when source includes "discussion"');
+              return;
+            }
+
+            // Skip discussion processing if no discussion number provided
             if (!discussionNumber) {
-              core.setFailed('No discussion number found');
+              core.info('No discussion number provided - skipping discussion data processing');
+              core.setOutput('number', '');
+              core.setOutput('title', 'Generated Documentation');
+              core.setOutput('body', '');
+              core.setOutput('full_content', '');
+              core.setOutput('comments_count', 0);
+              core.setOutput('labels', '[]');
+              core.setOutput('author', 'system');
+              core.setOutput('url', '');
               return;
             }
 
@@ -115,6 +169,7 @@ jobs:
             core.setOutput('url', discussion.html_url);
 
       - name: Validate discussion data
+        if: steps.discussion.outputs.number != ''
         env:
           DISCUSSION_NUMBER: ${{ steps.discussion.outputs.number }}
           DISCUSSION_TITLE: ${{ steps.discussion.outputs.title }}
@@ -127,9 +182,15 @@ jobs:
         id: doc-types
         env:
           DISCUSSION_LABELS: ${{ steps.discussion.outputs.labels }}
-        run: npm run process-labels
+        run: |
+          if [ -n "${{ steps.discussion.outputs.number }}" ]; then
+            npm run process-labels
+          else
+            echo "document_types=summary" >> $GITHUB_OUTPUT
+          fi
 
-      - name: Generate documentation
+      - name: Process modules based on runtime parameters
+        id: process-modules
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DOC_TYPES: ${{ steps.doc-types.outputs.document_types }}
@@ -139,15 +200,290 @@ jobs:
           DISCUSSION_AUTHOR: ${{ steps.discussion.outputs.author }}
           DISCUSSION_URL: ${{ steps.discussion.outputs.url }}
           COMMENTS_COUNT: ${{ steps.discussion.outputs.comments_count }}
+          # Jira integration (optional)
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          # Runtime data source selection
+          SOURCE_MODULES: ${{ github.event.inputs.source || 'discussion' }}
+          # PR processing parameters
+          PR_NUMBERS: ${{ github.event.inputs.pr_numbers }}
+          JIRA_KEYS: ${{ github.event.inputs.jira_keys }}
+          # Enhanced discovery parameters
+          DISCOVERY_SCOPE: ${{ github.event.inputs.discovery_scope || 'recent' }}
+          MAX_DISCOVERIES: ${{ github.event.inputs.max_discoveries || '20' }}
+          BATCH_SIZE: ${{ github.event.inputs.batch_size || '10' }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
         run: |
-          echo "Processing discussion with $COMMENTS_COUNT comments"
-          for doc_type in $DOC_TYPES; do
-            DOC_TYPE=$doc_type npm run generate-document
+          echo "=== Chroniclr Documentation Generation ==="
+          echo "Data sources: $SOURCE_MODULES"
+          if [ -n "$DISCUSSION_NUMBER" ]; then
+            echo "Discussion: #$DISCUSSION_NUMBER with $COMMENTS_COUNT comments"
+          else
+            echo "Discussion: None (using alternative data sources)"
+          fi
+          
+          # Parse requested data sources
+          IFS=',' read -ra MODULES <<< "$SOURCE_MODULES"
+          
+          # Initialize tracking
+          GENERATED_DOCS=""
+          PROCESSED_MODULES=""
+          
+          for module in "${MODULES[@]}"; do
+            module=$(echo "$module" | tr -d ' ')  # Remove whitespace
+            echo ""
+            echo "🔄 Processing data source: $module"
+            
+            case "$module" in
+              "discussion")
+                echo "✅ Discussion processing enabled"
+                PROCESSED_MODULES="$PROCESSED_MODULES discussion"
+                # Generate discussion-based documents
+                for doc_type in $DOC_TYPES; do
+                  echo "Generating $doc_type from discussion content..."
+                  DOC_TYPE=$doc_type npm run generate-document
+                  GENERATED_DOCS="$GENERATED_DOCS $doc_type"
+                done
+                ;;
+                
+              "jira")
+                if [ -n "$JIRA_BASE_URL" ] && [ -n "$JIRA_API_TOKEN" ]; then
+                  echo "✅ Jira integration enabled - generating project reports"
+                  PROCESSED_MODULES="$PROCESSED_MODULES jira"
+                  # Generate Jira-specific documents
+                  DOC_TYPE=sprint-report npm run generate-document
+                  DOC_TYPE=epic-summary npm run generate-document
+                  DOC_TYPE=project-dashboard npm run generate-document
+                  GENERATED_DOCS="$GENERATED_DOCS sprint-report epic-summary project-dashboard"
+                else
+                  echo "❌ Jira module requested but credentials not configured"
+                fi
+                ;;
+                
+              "pr")
+                echo "🔍 Pull Request module requested"
+                echo "  └─ Manual PRs: ${PR_NUMBERS:-none}"
+                echo "  └─ Jira keys for discovery: ${JIRA_KEYS:-none}"
+                echo "  └─ Discovery scope: $DISCOVERY_SCOPE"
+                echo "  └─ Max discoveries: $MAX_DISCOVERIES"
+                echo "  └─ Dry run: $DRY_RUN"
+                
+                if [ -n "$PR_NUMBERS" ] || [ -n "$JIRA_KEYS" ]; then
+                  echo ""
+                  echo "📋 Input Validation Phase"
+                  
+                  # Validate PR numbers format
+                  if [ -n "$PR_NUMBERS" ]; then
+                    echo "🔍 Validating manual PR numbers..."
+                    VALID_PRS=""
+                    INVALID_PRS=""
+                    
+                    IFS=',' read -ra PR_ARRAY <<< "$PR_NUMBERS"
+                    for pr in "${PR_ARRAY[@]}"; do
+                      pr=$(echo "$pr" | tr -d ' ')  # Remove whitespace
+                      if [[ "$pr" =~ ^[0-9]+$ ]]; then
+                        # Check if PR exists (this would need a GitHub API call in real implementation)
+                        VALID_PRS="$VALID_PRS$pr,"
+                        echo "  ✅ PR #$pr: Valid format"
+                      else
+                        INVALID_PRS="$INVALID_PRS$pr,"
+                        echo "  ❌ PR #$pr: Invalid format (not a number)"
+                      fi
+                    done
+                    
+                    if [ -n "$INVALID_PRS" ]; then
+                      echo "⚠️ Warning: Invalid PR numbers will be skipped: ${INVALID_PRS%,}"
+                    fi
+                    
+                    # Clean up valid PRs list
+                    VALID_PRS="${VALID_PRS%,}"
+                    if [ -z "$VALID_PRS" ]; then
+                      echo "❌ No valid PR numbers provided"
+                    fi
+                  fi
+                  
+                  # Validate Jira keys format  
+                  if [ -n "$JIRA_KEYS" ]; then
+                    echo "🔍 Validating Jira keys..."
+                    VALID_JIRA=""
+                    INVALID_JIRA=""
+                    
+                    IFS=',' read -ra JIRA_ARRAY <<< "$JIRA_KEYS"
+                    for key in "${JIRA_ARRAY[@]}"; do
+                      key=$(echo "$key" | tr -d ' ')  # Remove whitespace
+                      # Basic Jira key pattern validation (PROJECT-NUMBER)
+                      if [[ "$key" =~ ^[A-Za-z]+-[0-9]+$ ]]; then
+                        VALID_JIRA="$VALID_JIRA$key,"
+                        echo "  ✅ Jira key $key: Valid format"
+                      else
+                        INVALID_JIRA="$INVALID_JIRA$key,"
+                        echo "  ❌ Jira key $key: Invalid format (expected PROJECT-123)"
+                      fi
+                    done
+                    
+                    if [ -n "$INVALID_JIRA" ]; then
+                      echo "⚠️ Warning: Invalid Jira keys will be skipped: ${INVALID_JIRA%,}"
+                    fi
+                    
+                    # Clean up valid Jira list
+                    VALID_JIRA="${VALID_JIRA%,}"
+                  fi
+                  
+                  # Proceed only if we have valid inputs
+                  if [ -n "$VALID_PRS" ] || [ -n "$VALID_JIRA" ]; then
+                    echo ""
+                    echo "✅ Pull Request analysis enabled - generating release documentation"
+                    PROCESSED_MODULES="$PROCESSED_MODULES pr"
+                    
+                    # Build PR list from multiple sources
+                    PR_LIST=""
+                    
+                    if [ -n "$VALID_PRS" ]; then
+                      echo "📝 Processing validated PRs: $VALID_PRS"
+                      PR_LIST="$VALID_PRS"
+                    fi
+                    
+                    if [ -n "$VALID_JIRA" ]; then
+                      echo "🔍 Discovering PRs for validated Jira keys: $VALID_JIRA"
+                      if [ -n "$PR_LIST" ]; then
+                        # Combine manual PRs with Jira-discovered PRs
+                        PR_LIST="$PR_LIST,from-jira:$VALID_JIRA"
+                      else
+                        # Only Jira discovery
+                        PR_LIST="from-jira:$VALID_JIRA"
+                      fi
+                    fi
+                    
+                    if [ "$DRY_RUN" = "true" ]; then
+                      echo ""
+                      echo "🏃‍♂️ DRY RUN MODE - Preview only, no documents will be generated"
+                      echo "Would process PRs with list: $PR_LIST"
+                      echo "Would generate: release-notes, change-impact-report"
+                    else
+                      echo ""
+                      echo "🚀 Generating PR-based documentation..."
+                      # Generate PR-based documents with PR list
+                      PR_LIST="$PR_LIST" DOC_TYPE=release-notes npm run generate-document
+                      if [ $? -eq 0 ]; then
+                        echo "  ✅ release-notes generated successfully"
+                        GENERATED_DOCS="$GENERATED_DOCS release-notes"
+                      else
+                        echo "  ❌ release-notes generation failed"
+                      fi
+                      
+                      PR_LIST="$PR_LIST" DOC_TYPE=change-impact-report npm run generate-document
+                      if [ $? -eq 0 ]; then
+                        echo "  ✅ change-impact-report generated successfully"
+                        GENERATED_DOCS="$GENERATED_DOCS change-impact-report"
+                      else
+                        echo "  ❌ change-impact-report generation failed"
+                      fi
+                    fi
+                  else
+                    echo ""
+                    echo "❌ PR module validation failed"
+                    echo "No valid PR numbers or Jira keys provided after validation"
+                    echo ""
+                    echo "📋 Usage Examples:"
+                    echo "  Valid PR numbers: pr_numbers='123,456,789'"
+                    echo "  Valid Jira keys: jira_keys='PROJ-123,FEAT-456'"
+                    echo "  Combined: pr_numbers='123' jira_keys='PROJ-456'"
+                  fi
+                else
+                  echo "❌ PR module requested but no input provided"
+                  echo ""
+                  echo "📋 Required Parameters:"
+                  echo "  • pr_numbers: Specific PR numbers to analyze"
+                  echo "  • jira_keys: Jira keys to find related PRs"
+                  echo "  • At least one parameter is required"
+                  echo ""
+                  echo "🎯 Examples:"
+                  echo "  gh workflow run chroniclr.yml -f source=pr -f pr_numbers='123,456'"
+                  echo "  gh workflow run chroniclr.yml -f source=pr -f jira_keys='PROJ-123'"
+                  echo "  gh workflow run chroniclr.yml -f source=pr -f pr_numbers='123' -f jira_keys='PROJ-456'"
+                fi
+                ;;
+                
+              "issues")
+                echo "✅ Action Items processing enabled"
+                PROCESSED_MODULES="$PROCESSED_MODULES issues"
+                # Process action items (handled separately)
+                ;;
+                
+                
+              *)
+                echo "❌ Unknown module: $module"
+                ;;
+            esac
           done
+          
+          # Generate cross-platform correlation if multiple sources are used
+          if [ $(echo "$PROCESSED_MODULES" | wc -w) -gt 1 ]; then
+            echo ""
+            echo "🔄 Generating cross-platform correlation report (multi-source intelligence)"
+            DOC_TYPE=feature-completion npm run generate-document
+            GENERATED_DOCS="$GENERATED_DOCS feature-completion"
+          fi
+          
+          echo ""
+          echo "=== Processing Summary ==="
+          echo "Data sources used: $PROCESSED_MODULES"
+          echo "Generated documents: $GENERATED_DOCS"
+          echo "AI processing: Enabled for all document generation"
+          echo "Cross-platform correlation: $([ $(echo "$PROCESSED_MODULES" | wc -w) -gt 1 ] && echo "Enabled" || echo "Not applicable (single source)")"
+          
+          # Generate comprehensive processing report
+          echo ""
+          echo "📊 Final Processing Report"
+          echo "=========================="
+          echo "✅ Modules processed: $PROCESSED_MODULES"
+          echo "📄 Documents generated: $GENERATED_DOCS"
+          echo "🔍 Discovery scope: $DISCOVERY_SCOPE"
+          echo "🎯 Max discoveries: $MAX_DISCOVERIES"
+          echo "🏃‍♂️ Dry run mode: $DRY_RUN"
+          
+          if [ -n "$PR_NUMBERS" ]; then
+            echo "📝 Manual PRs requested: $PR_NUMBERS"
+          fi
+          if [ -n "$JIRA_KEYS" ]; then
+            echo "🎫 Jira keys searched: $JIRA_KEYS"
+          fi
+          
+          # Check if discovery report exists from PR client
+          if [ -n "$DISCOVERY_REPORT" ]; then
+            echo ""
+            echo "🔍 Discovery Results:"
+            echo "$DISCOVERY_REPORT" | jq -r '
+              "  • Searched Jira keys: " + (.searchedKeys | join(", ")) +
+              "\n  • PRs discovered: " + (.foundPRs | tostring) +
+              "\n  • High confidence: " + (.highConfidence | tostring) +
+              "\n  • Medium confidence: " + (.mediumConfidence | tostring) +  
+              "\n  • Low confidence: " + (.lowConfidence | tostring)
+            ' 2>/dev/null || echo "  Discovery report parsing failed"
+          fi
+          
+          echo ""
+          echo "🎯 Recommendations:"
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "  • Run without --dry-run to generate actual documentation"
+          fi
+          if [ -z "$PROCESSED_MODULES" ]; then
+            echo "  • No modules were successfully processed - check inputs and credentials"
+          fi
+          if [ -n "$PROCESSED_MODULES" ] && [ -z "$GENERATED_DOCS" ]; then
+            echo "  • Modules processed but no documents generated - check for errors above"
+          fi
+          
+          # Set outputs for next steps
+          echo "processed_modules=$PROCESSED_MODULES" >> $GITHUB_OUTPUT
+          echo "generated_docs=$GENERATED_DOCS" >> $GITHUB_OUTPUT
+          echo "discovery_scope=$DISCOVERY_SCOPE" >> $GITHUB_OUTPUT
+          echo "dry_run=$DRY_RUN" >> $GITHUB_OUTPUT
 
       - name: Create GitHub issues for action items
         id: action-items
-        if: success()
+        if: success() && contains(steps.process-modules.outputs.processed_modules, 'issues')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DISCUSSION_NUMBER: ${{ steps.discussion.outputs.number }}
@@ -216,7 +552,8 @@ jobs:
 
             **Discussion:** [${{ steps.discussion.outputs.title }}](${{ steps.discussion.outputs.url }})
             **Author:** @${{ steps.discussion.outputs.author }}
-            **Generated Documents:** ${{ steps.doc-types.outputs.document_types }}
+            **Data Sources:** ${{ steps.process-modules.outputs.processed_modules }}
+            **Generated Documents:** ${{ steps.process-modules.outputs.generated_docs }}
             **Comments Processed:** ${{ steps.discussion.outputs.comments_count }}
             **Action Items Created:** ${{ steps.action-items.outputs.issues_created || 0 }} GitHub issues
 

@@ -1,22 +1,28 @@
-# Chroniclr - AI-Powered Documentation Automation
+# Chroniclr - Complete Project Intelligence System
 
-> Automatically generate project documentation and manage action items from GitHub discussions using GitHub Models API and GitHub Actions.
+> AI-powered documentation generation from multiple data sources: GitHub discussions, Jira projects, and pull requests. Modular architecture with runtime source selection for targeted documentation.
 
 ## Overview
 
-Chroniclr transforms GitHub discussions (including all comments) into comprehensive documentation and automatically creates GitHub issues for action items:
+Chroniclr is a comprehensive project intelligence system that generates documentation from multiple data sources with runtime source selection:
 
-### 📚 **Documentation Generation**
-- **Project Summaries** - Overview, objectives, current status, stakeholder input
-- **Initiative Briefs** - Problem statements, solutions, timelines, technical specifications  
-- **Changelogs** - Version history, feature additions, bug fixes
-- **Meeting Notes** - Action items, decisions, next steps, progress updates
+### 📊 **Data Sources**
+- **GitHub Discussions** - Discussion content, comments, community engagement analysis
+- **Jira Projects** - Sprint data, epics, issues, project metrics, team workload  
+- **Pull Requests** - Code changes, file analysis, commit history, release documentation
+- **Action Items** - Extract and manage action items from any source content
 
-### 🎯 **Automatic Task Management**
-- **Action Item Detection** - Parse action items from discussions and comments
-- **GitHub Issues Creation** - Automatically create assigned issues with due dates
-- **Smart Labeling** - Priority labels based on deadlines, status tracking
-- **Assignment Validation** - Verify users exist before assignment
+### 🤖 **Core Intelligence Functions**
+- **AI Document Generation** - Uses GitHub Models API (GPT-4o) to process selected data sources
+- **Cross-Platform Correlation** - Automatically links related artifacts when using multiple sources
+- **Community Engagement Analysis** - Prioritizes content based on emoji reactions and engagement
+- **Smart Task Management** - Creates GitHub issues with assignments, priorities, and due dates
+
+### 📚 **Generated Documentation Types**
+**From Discussions:** Project summaries, initiative briefs, meeting notes, changelogs
+**From Jira:** Sprint reports, epic summaries, project dashboards  
+**From PRs:** Release notes, change impact reports
+**Multi-Source:** Feature completion tracking, cross-platform correlation reports
 
 ## Quick Start
 
@@ -54,11 +60,24 @@ permissions:
    - Creates assigned GitHub issues for all action items
    - Opens PR with summary of generated docs and created issues
 
-### 4. Add Labels and Trigger Automation
+### 4. Choose Data Sources and Generate Documentation
 
-The workflow runs automatically on discussion creation/editing, or manually via:
+The workflow supports runtime data source selection:
 ```bash
-gh workflow run chroniclr.yml -f discussion_number=123
+# Traditional discussion processing
+gh workflow run chroniclr.yml -f discussion_number=123 -f source=discussion
+
+# Jira project documentation  
+gh workflow run chroniclr.yml -f discussion_number=123 -f source=jira
+
+# Pull request analysis
+gh workflow run chroniclr.yml -f discussion_number=123 -f source=pr
+
+# Multi-source intelligence
+gh workflow run chroniclr.yml -f discussion_number=123 -f source=jira,pr
+
+# All data sources
+gh workflow run chroniclr.yml -f discussion_number=123 -f source=discussion,jira,pr,issues
 ```
 
 ## How It Works
