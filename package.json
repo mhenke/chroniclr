@@ -10,11 +10,14 @@
     "generate-document": "node src/generators/ai-document-generator.js",
     "create-action-items": "node src/utils/issue-creator.js",
     "test-pr-templates": "node src/utils/pr-document-generator.js test-all",
-    "test-pr-template": "node src/utils/pr-document-generator.js test"
+    "test-pr-template": "node src/utils/pr-document-generator.js test",
+    "generate-config": "node src/utils/config-loader.js generate",
+    "test-rate-limiter": "node src/utils/rate-limiter.js test",
+    "test-pr-discovery": "node src/utils/pr-client.js test-discovery"
   },
   "keywords": [
     "documentation",
-    "automation", 
+    "automation",
     "github",
     "github-models",
     "ai",

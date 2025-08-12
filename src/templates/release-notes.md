@@ -2,11 +2,24 @@
 
 **Version:** {version}  
 **Release Date:** {releaseDate}  
-**Release Manager:** {releaseManager}
+**Release Manager:** {releaseManager}  
+**Pull Requests Analyzed:** {prCount}  
+**Contributors:** {contributorCount}
 
 ## Release Overview
 
 {releaseOverview}
+
+## Pull Request Summary
+
+### Merged Pull Requests ({prCount} total)
+{mergedPullRequests}
+
+### High-Impact Changes
+{highImpactChanges}
+
+### Contributor Recognition
+{contributorRecognition}
 
 ## What's New
 

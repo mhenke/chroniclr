@@ -9,6 +9,7 @@ const core = require('@actions/core');
 const github = require('@actions/github');
 const fs = require('fs');
 const path = require('path');
+const { queueGitHubRequest, getRateLimiter } = require('./rate-limiter');
 
 class PullRequestClient {
   constructor() {
@@ -209,14 +210,18 @@ class PullRequestClient {
         searchQuery += ` updated:>=${twoWeeksAgo}`;
       }
       
-      const { data: searchResults } = await this.github.rest.search.issuesAndPullRequests({
-        q: searchQuery,
-        sort: 'updated',
-        order: 'desc',
-        per_page: 30 // Get more results for better analysis
-      });
+      const searchResults = await queueGitHubRequest(
+        () => this.github.rest.search.issuesAndPullRequests({
+          q: searchQuery,
+          sort: 'updated',
+          order: 'desc',
+          per_page: 30 // Get more results for better analysis
+        }),
+        'search', // Use search-specific rate limiting
+        'normal'
+      );
 
-      for (const pr of searchResults.items) {
+      for (const pr of searchResults.data.items) {
         if (pr.pull_request) {
           this.addDiscoveredPR(discoveredPRs, pr.number, {
             title: pr.title,
@@ -227,7 +232,7 @@ class PullRequestClient {
         }
       }
       
-      core.info(`  └─ ${strategy}: Found ${searchResults.items.length} potential matches`);
+      core.info(`  └─ ${strategy}: Found ${searchResults.data.items.length} potential matches`);
     } catch (error) {
       core.warning(`  └─ ${strategy} search failed: ${error.message}`);
     }
@@ -250,12 +255,16 @@ class PullRequestClient {
         const searchQuery = `repo:${this.context.repo.owner}/${this.context.repo.repo} ${pattern} is:pr`;
         
         try {
-          const { data: results } = await this.github.rest.search.issuesAndPullRequests({
-            q: searchQuery,
-            per_page: 10
-          });
+          const results = await queueGitHubRequest(
+            () => this.github.rest.search.issuesAndPullRequests({
+              q: searchQuery,
+              per_page: 10
+            }),
+            'search',
+            'normal'
+          );
           
-          for (const pr of results.items) {
+          for (const pr of results.data.items) {
             if (pr.pull_request) {
               this.addDiscoveredPR(discoveredPRs, pr.number, {
                 title: pr.title,
@@ -286,12 +295,16 @@ class PullRequestClient {
       // scan actual commit messages more thoroughly
       const searchQuery = `repo:${this.context.repo.owner}/${this.context.repo.repo} ${jiraKey} type:pr is:merged`;
       
-      const { data: results } = await this.github.rest.search.issuesAndPullRequests({
-        q: searchQuery,
-        per_page: 15
-      });
+      const results = await queueGitHubRequest(
+        () => this.github.rest.search.issuesAndPullRequests({
+          q: searchQuery,
+          per_page: 15
+        }),
+        'search',
+        'normal'
+      );
       
-      for (const pr of results.items) {
+      for (const pr of results.data.items) {
         if (pr.pull_request) {
           this.addDiscoveredPR(discoveredPRs, pr.number, {
             title: pr.title,
@@ -302,7 +315,7 @@ class PullRequestClient {
         }
       }
       
-      core.info(`  └─ commit-analysis: Found ${results.items.length} merged PRs with references`);
+      core.info(`  └─ commit-analysis: Found ${results.data.items.length} merged PRs with references`);
     } catch (error) {
       core.warning(`  └─ commit-analysis failed: ${error.message}`);
     }

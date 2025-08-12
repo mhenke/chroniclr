@@ -2,11 +2,21 @@
 
 **Generated:** {date}  
 **PR/Change:** {prNumber}  
-**Author:** {author}
+**Author:** {author}  
+**Confidence Score:** {confidenceScore}%  
+**Discovery Source:** {discoverySource}
 
 ## Executive Summary
 
 {executiveSummary}
+
+## Discovery Information
+
+### How This PR Was Found
+- **Discovery method:** {discoveryMethod}
+- **Jira reference:** {jiraReference}
+- **Confidence level:** {confidenceLevel}
+- **Cross-references:** {crossReferences}
 
 ## Changes Overview
 

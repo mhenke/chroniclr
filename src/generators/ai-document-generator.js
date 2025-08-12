@@ -9,6 +9,7 @@ const core = require('@actions/core');
 const fs = require('fs').promises;
 const path = require('path');
 const { globalRequestQueue } = require('../utils/request-queue');
+const { OutputManager } = require('../utils/output-manager');
 
 class AIDocumentGenerator {
   constructor() {
@@ -655,15 +656,60 @@ Generate the comprehensive ${docType} document now:
     }
   }
 
-  async saveDocument(docType, content, discussionNumber) {
-    const outputDir = path.join(process.cwd(), 'docs');
-    await fs.mkdir(outputDir, { recursive: true });
-
-    const filename = `${docType}-${discussionNumber}.md`;
-    const filepath = path.join(outputDir, filename);
+  async saveDocument(docType, content, discussionNumber, discussionData = {}) {
+    // Use intelligent output management
+    const outputManager = new OutputManager();
+    
+    // Check if we have an active session from the workflow
+    const sessionOutputDir = process.env.CHRONICLR_OUTPUT_DIR;
+    const sessionId = process.env.CHRONICLR_SESSION_ID;
+    
+    let filepath;
+    if (sessionOutputDir && sessionId) {
+      // Use the existing session
+      const filename = `${docType}-${discussionNumber || 'generated'}.md`;
+      filepath = path.join(sessionOutputDir, filename);
+      
+      // Ensure directory exists
+      await fs.mkdir(sessionOutputDir, { recursive: true });
+      
+      core.info(`📁 Using session output directory: ${sessionOutputDir}`);
+    } else {
+      // Create a new session for standalone generation
+      const context = {
+        discussionNumber,
+        discussionTitle: discussionData.title,
+        discussionAuthor: discussionData.author,
+        sources: [docType.includes('pr') ? 'pr' : docType.includes('jira') ? 'jira' : 'discussion']
+      };
+      
+      const session = await outputManager.initializeSession(context);
+      filepath = outputManager.getOutputPath(docType, `${docType}-${discussionNumber || 'generated'}.md`);
+      
+      core.info(`📁 Created new session: ${session.folderName}`);
+    }
 
     await fs.writeFile(filepath, content, 'utf8');
-    core.info(`Generated: ${filepath}`);
+    core.info(`✅ Generated: ${filepath}`);
+    
+    // Register the file with the output manager (if in session mode)
+    if (sessionOutputDir) {
+      try {
+        // Create a temporary output manager instance to register the file
+        const tempOutputManager = new OutputManager();
+        tempOutputManager.currentSession = {
+          outputDir: sessionOutputDir,
+          sessionId,
+          generatedFiles: []
+        };
+        tempOutputManager.registerGeneratedFile(filepath, docType, {
+          discussionNumber,
+          generatedAt: new Date().toISOString()
+        });
+      } catch (error) {
+        core.warning(`Failed to register file with output manager: ${error.message}`);
+      }
+    }
 
     return filepath;
   }
@@ -762,7 +808,8 @@ async function main() {
     const filepath = await generator.saveDocument(
       docType,
       content,
-      discussionNumber
+      discussionNumber,
+      discussionData
     );
 
     core.setOutput('filepath', filepath);

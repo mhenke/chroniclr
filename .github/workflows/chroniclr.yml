@@ -48,6 +48,10 @@ on:
         required: false
         type: boolean
         default: false
+      config_file:
+        description: 'Path to configuration file (YAML or JSON) - overrides individual parameters'
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -75,6 +79,64 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Load Configuration
+        id: load-config
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { ConfigLoader } = require('./src/utils/config-loader.js');
+            const configLoader = new ConfigLoader();
+            
+            let config;
+            const configFile = context.payload.inputs?.config_file;
+            
+            if (configFile) {
+              core.info(`📄 Loading configuration from file: ${configFile}`);
+              try {
+                config = await configLoader.loadConfiguration(configFile);
+                core.info('✅ Configuration loaded successfully from file');
+              } catch (error) {
+                core.error(`❌ Failed to load config file: ${error.message}`);
+                core.info('📄 Falling back to individual parameters');
+                config = configLoader.loadFromEnvironment();
+              }
+            } else {
+              core.info('📄 Loading configuration from workflow parameters');
+              config = configLoader.loadFromEnvironment();
+            }
+            
+            // Convert config to environment variables and set outputs
+            const envVars = configLoader.configToEnvVars(config);
+            
+            // Set environment variables for subsequent steps
+            Object.entries(envVars).forEach(([key, value]) => {
+              core.exportVariable(key, value);
+              core.info(`🔧 Set ${key}=${value}`);
+            });
+            
+            // Set outputs for reporting
+            core.setOutput('sources', config.sources.join(','));
+            core.setOutput('discovery_scope', config.discovery.scope);
+            core.setOutput('max_discoveries', config.discovery.maxDiscoveries);
+            core.setOutput('dry_run', config.options.dryRun);
+            core.setOutput('config_loaded_from', configFile ? 'file' : 'parameters');
+            
+            // Log configuration summary
+            core.info('\n📊 Final Configuration:');
+            core.info(`  Sources: ${config.sources.join(', ')}`);
+            core.info(`  Discovery scope: ${config.discovery.scope}`);
+            core.info(`  Max discoveries: ${config.discovery.maxDiscoveries}`);
+            core.info(`  Dry run: ${config.options.dryRun}`);
+            if (config.discussionNumber) {
+              core.info(`  Discussion: #${config.discussionNumber}`);
+            }
+            if (config.prNumbers && config.prNumbers.length > 0) {
+              core.info(`  Manual PRs: ${config.prNumbers.join(', ')}`);
+            }
+            if (config.jiraKeys && config.jiraKeys.length > 0) {
+              core.info(`  Jira keys: ${config.jiraKeys.join(', ')}`);
+            }
 
       - name: Get discussion details
         id: discussion
@@ -188,6 +250,42 @@ jobs:
           else
             echo "document_types=summary" >> $GITHUB_OUTPUT
           fi
+
+      - name: Initialize Output Session
+        id: init-output
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { OutputManager } = require('./src/utils/output-manager.js');
+            const { github } = require('@actions/github');
+            
+            const outputManager = new OutputManager({
+              github: github.getOctokit(process.env.GITHUB_TOKEN),
+              enableAIGeneration: true
+            });
+            
+            // Prepare context for folder naming
+            const context = {
+              discussionNumber: process.env.DISCUSSION_NUMBER,
+              discussionTitle: process.env.DISCUSSION_TITLE,
+              discussionAuthor: process.env.DISCUSSION_AUTHOR,
+              prNumbers: process.env.PR_NUMBERS,
+              jiraKeys: process.env.JIRA_KEYS,
+              sources: (process.env.SOURCE_MODULES || '').split(',').map(s => s.trim()).filter(s => s.length > 0)
+            };
+            
+            core.info('🚀 Initializing intelligent output session...');
+            const session = await outputManager.initializeSession(context);
+            
+            // Set outputs for subsequent steps
+            core.setOutput('output_dir', session.outputDir);
+            core.setOutput('folder_name', session.folderName);
+            core.setOutput('session_id', session.sessionId);
+            
+            // Export for use in other steps
+            core.exportVariable('CHRONICLR_OUTPUT_DIR', session.outputDir);
+            core.exportVariable('CHRONICLR_SESSION_ID', session.sessionId);
+            core.exportVariable('CHRONICLR_FOLDER_NAME', session.folderName);
 
       - name: Process modules based on runtime parameters
         id: process-modules
@@ -481,6 +579,59 @@ jobs:
           echo "discovery_scope=$DISCOVERY_SCOPE" >> $GITHUB_OUTPUT
           echo "dry_run=$DRY_RUN" >> $GITHUB_OUTPUT
 
+      - name: Finalize Output Session
+        id: finalize-output
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { OutputManager } = require('./src/utils/output-manager.js');
+            
+            // Create output manager instance
+            const outputManager = new OutputManager();
+            
+            // Reconstruct session from environment variables
+            const sessionOutputDir = process.env.CHRONICLR_OUTPUT_DIR;
+            const sessionId = process.env.CHRONICLR_SESSION_ID;
+            const folderName = process.env.CHRONICLR_FOLDER_NAME;
+            
+            if (sessionOutputDir && sessionId) {
+              try {
+                // Load session metadata
+                const fs = require('fs');
+                const path = require('path');
+                const metadataPath = path.join(sessionOutputDir, '.chroniclr-session.json');
+                
+                if (fs.existsSync(metadataPath)) {
+                  const sessionData = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
+                  outputManager.currentSession = sessionData;
+                  
+                  // Finalize session with summary
+                  const summary = {
+                    processedModules: process.env.PROCESSED_MODULES || '',
+                    generatedDocs: process.env.GENERATED_DOCS || '',
+                    discoveryScope: process.env.DISCOVERY_SCOPE || '',
+                    dryRun: process.env.DRY_RUN === 'true',
+                    workflowSuccess: true
+                  };
+                  
+                  const finalSession = await outputManager.finalizeSession(summary);
+                  
+                  core.info('🎉 Output session finalized successfully!');
+                  core.setOutput('output_folder', finalSession.folderName);
+                  core.setOutput('total_files', finalSession.summary.totalFiles);
+                  core.setOutput('session_summary', JSON.stringify(finalSession.summary));
+                  
+                } else {
+                  core.warning('Session metadata not found - cannot finalize properly');
+                }
+              } catch (error) {
+                core.error(`Failed to finalize output session: ${error.message}`);
+              }
+            } else {
+              core.info('No active output session to finalize');
+            }
+
       - name: Create GitHub issues for action items
         id: action-items
         if: success() && contains(steps.process-modules.outputs.processed_modules, 'issues')
@@ -556,6 +707,11 @@ jobs:
             **Generated Documents:** ${{ steps.process-modules.outputs.generated_docs }}
             **Comments Processed:** ${{ steps.discussion.outputs.comments_count }}
             **Action Items Created:** ${{ steps.action-items.outputs.issues_created || 0 }} GitHub issues
+            
+            ### 📁 Intelligent Output Organization
+            **Output Folder:** `${{ steps.finalize-output.outputs.output_folder || steps.init-output.outputs.folder_name }}`  
+            **Total Files Generated:** ${{ steps.finalize-output.outputs.total_files || 'Processing...' }}  
+            **Session ID:** `${{ steps.init-output.outputs.session_id }}`
 
             ### Changes
             - Generated comprehensive documentation based on full discussion thread
