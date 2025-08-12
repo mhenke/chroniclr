@@ -1,5 +1,6 @@
 # PR Summary: {prTitle}
 
+
 **PR Number:** #{prNumber}  
 **Author:** @{prAuthor}  
 **Status:** {prStatus}  
@@ -36,6 +37,7 @@
 ## Related Issues
 
 {relatedIssues}
+
 
 ## Review Summary
 
