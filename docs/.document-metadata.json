@@ -1,11 +1,49 @@
 {
   "docs/test-document.md": {
-    "lastUpdated": "2025-08-12T20:57:25.931Z",
+    "lastUpdated": "2025-08-12T21:04:17.931Z",
     "hash": "82d9e34acf92c1257d20855e664d14dae7f93af81bfd2b9265b38212391c6943",
-    "version": 1,
+    "version": 2,
     "size": 425,
     "sources": [],
     "references": [],
-    "topics": []
+    "topics": [],
+    "created": "2025-08-12T21:04:17.935Z",
+    "lastAnalyzed": "2025-08-12T21:04:17.935Z",
+    "updateHistory": [
+      {
+        "version": 2,
+        "timestamp": "2025-08-12T21:04:17.935Z",
+        "trigger": "manual",
+        "changes": {
+          "linesAdded": 0,
+          "linesDeleted": 0,
+          "sectionsModified": []
+        }
+      }
+    ],
+    "dependencies": [],
+    "dependents": [],
+    "relatedFiles": [],
+    "quality": {
+      "completeness": 50,
+      "freshness": 100,
+      "accuracy": "unknown"
+    },
+    "automation": {
+      "autoUpdate": true,
+      "preserveMarkers": [
+        {
+          "marker": "manual-edit",
+          "position": 189,
+          "context": " Introduction\n\nThis section should be preserved.\n\n<!-- manual-edit -->\n## Custom Section\n\nThis is a custom section that should be preserved during upd"
+        },
+        {
+          "marker": "preserve",
+          "position": 295,
+          "context": " section that should be preserved during updates.\n<!-- preserve -->\n\n## API Changes\n\nThis section will be replaced during updates.\n\n## Conclusion\n\nThi"
+        }
+      ],
+      "updateFrequency": "monthly"
+    }
   }
 }

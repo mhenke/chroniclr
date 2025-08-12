@@ -6,12 +6,23 @@ on:
     branches:
       - main
       - master
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'src/**'
+      - 'lib/**'
+      - 'docs/**'
+      - 'README.md'
+      - 'package.json'
   workflow_dispatch:
     inputs:
       force:
         description: 'Force update all documents'
         required: false
         default: 'false'
+        type: boolean
       pr:
         description: 'PR number to analyze'
         required: false
@@ -20,10 +31,101 @@ on:
         description: 'Update documents since date (YYYY-MM-DD)'
         required: false
         type: string
+      interactive:
+        description: 'Run in interactive mode (dry-run with detailed output)'
+        required: false
+        default: 'false'
+        type: boolean
 
 jobs:
-  update-docs:
+  analyze-changes:
     runs-on: ubuntu-latest
+    outputs:
+      should-update: ${{ steps.analysis.outputs.should-update }}
+      risk-level: ${{ steps.analysis.outputs.risk-level }}
+      doc-types-needed: ${{ steps.analysis.outputs.doc-types-needed }}
+      files-changed: ${{ steps.analysis.outputs.files-changed }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Analyze changes for documentation needs
+        id: analysis
+        run: |
+          # Determine what files changed
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            FILES_CHANGED=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} | wc -l)
+            CHANGED_PATHS=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} | head -10 | tr '\n' ',' | sed 's/,$//')
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            FILES_CHANGED=$(git diff --name-only HEAD~1 HEAD | wc -l)
+            CHANGED_PATHS=$(git diff --name-only HEAD~1 HEAD | head -10 | tr '\n' ',' | sed 's/,$//')
+          else
+            FILES_CHANGED=0
+            CHANGED_PATHS=""
+          fi
+          
+          echo "files-changed=$FILES_CHANGED" >> $GITHUB_OUTPUT
+          echo "changed-paths=$CHANGED_PATHS" >> $GITHUB_OUTPUT
+          
+          # Determine if documentation update is needed
+          SHOULD_UPDATE="false"
+          RISK_LEVEL="low"
+          DOC_TYPES=""
+          
+          if [[ $FILES_CHANGED -gt 0 ]]; then
+            SHOULD_UPDATE="true"
+            
+            # Assess risk level based on files changed
+            if [[ $FILES_CHANGED -gt 20 ]]; then
+              RISK_LEVEL="high"
+            elif [[ $FILES_CHANGED -gt 5 ]]; then
+              RISK_LEVEL="medium"
+            fi
+            
+            # Check for specific file types that need documentation
+            if echo "$CHANGED_PATHS" | grep -q "src/.*\.js\|src/.*\.ts"; then
+              DOC_TYPES="${DOC_TYPES}api,"
+            fi
+            if echo "$CHANGED_PATHS" | grep -q "README\|docs/"; then
+              DOC_TYPES="${DOC_TYPES}userGuide,"
+            fi
+            if echo "$CHANGED_PATHS" | grep -q "package\.json\|.*\.config"; then
+              DOC_TYPES="${DOC_TYPES}technical,"
+            fi
+          fi
+          
+          # Force update on manual trigger
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.force }}" == "true" ]]; then
+            SHOULD_UPDATE="true"
+            RISK_LEVEL="medium"
+          fi
+          
+          echo "should-update=$SHOULD_UPDATE" >> $GITHUB_OUTPUT
+          echo "risk-level=$RISK_LEVEL" >> $GITHUB_OUTPUT
+          echo "doc-types-needed=${DOC_TYPES%,}" >> $GITHUB_OUTPUT
+          
+          echo "📊 Analysis Results:"
+          echo "   Files changed: $FILES_CHANGED"
+          echo "   Should update docs: $SHOULD_UPDATE"
+          echo "   Risk level: $RISK_LEVEL"
+          echo "   Doc types needed: ${DOC_TYPES%,}"
+
+  update-docs:
+    needs: analyze-changes
+    runs-on: ubuntu-latest
+    if: needs.analyze-changes.outputs.should-update == 'true' || github.event.inputs.force == 'true'
     permissions:
       contents: write
       pull-requests: write
@@ -49,47 +151,181 @@ jobs:
       - name: Determine update parameters
         id: params
         run: |
+          UPDATE_ARGS=""
+          
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             # Workflow dispatch with custom parameters
-            echo "Using workflow dispatch parameters"
+            echo "🚀 Manual workflow trigger detected"
             
             if [[ "${{ github.event.inputs.force }}" == "true" ]]; then
-              echo "FORCE_UPDATE=--force" >> $GITHUB_ENV
+              UPDATE_ARGS="$UPDATE_ARGS --force"
+              echo "FORCE_UPDATE=true" >> $GITHUB_ENV
             fi
             
             if [[ -n "${{ github.event.inputs.pr }}" ]]; then
-              echo "PR_NUMBER=--pr=${{ github.event.inputs.pr }}" >> $GITHUB_ENV
+              UPDATE_ARGS="$UPDATE_ARGS --pr=${{ github.event.inputs.pr }}"
+              echo "PR_NUMBER=${{ github.event.inputs.pr }}" >> $GITHUB_ENV
             fi
             
             if [[ -n "${{ github.event.inputs.since }}" ]]; then
-              echo "SINCE=--since=${{ github.event.inputs.since }}" >> $GITHUB_ENV
+              UPDATE_ARGS="$UPDATE_ARGS --since=${{ github.event.inputs.since }}"
+              echo "SINCE=${{ github.event.inputs.since }}" >> $GITHUB_ENV
             fi
+            
+            if [[ "${{ github.event.inputs.interactive }}" == "true" ]]; then
+              UPDATE_ARGS="$UPDATE_ARGS --dry-run --verbose"
+              echo "DRY_RUN=true" >> $GITHUB_ENV
+            else
+              UPDATE_ARGS="$UPDATE_ARGS --batch"
+            fi
+            
           elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
             # PR event
-            echo "Using PR #${{ github.event.pull_request.number }}"
-            echo "PR_NUMBER=--pr=${{ github.event.pull_request.number }}" >> $GITHUB_ENV
+            echo "📄 PR event detected: #${{ github.event.pull_request.number }}"
+            UPDATE_ARGS="--pr=${{ github.event.pull_request.number }}"
+            echo "PR_NUMBER=${{ github.event.pull_request.number }}" >> $GITHUB_ENV
+            
+            # Add verbose output for high-risk changes
+            if [[ "${{ needs.analyze-changes.outputs.risk-level }}" == "high" ]]; then
+              UPDATE_ARGS="$UPDATE_ARGS --verbose"
+            fi
+            
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            # Push to main branch
+            echo "🔄 Push to main branch detected"
+            UPDATE_ARGS="--batch --verbose"
+            echo "PUSH_UPDATE=true" >> $GITHUB_ENV
           fi
+          
+          echo "UPDATE_ARGS=$UPDATE_ARGS" >> $GITHUB_ENV
+          echo "Update arguments: $UPDATE_ARGS"
 
       - name: Update documentation
-        run: npm run update-documents -- ${{ env.FORCE_UPDATE }} ${{ env.PR_NUMBER }} ${{ env.SINCE }}
+        run: |
+          echo "🔄 Running document update with args: $UPDATE_ARGS"
+          npm run update-documents -- $UPDATE_ARGS
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Check for changes
+        id: changes
+        run: |
+          if git diff --quiet; then
+            echo "has-changes=false" >> $GITHUB_OUTPUT
+            echo "📝 No documentation changes generated"
+          else
+            echo "has-changes=true" >> $GITHUB_OUTPUT
+            echo "📝 Documentation changes detected"
+            
+            # Show summary of changes
+            echo "Changed files:"
+            git diff --name-only | head -10
+            
+            echo ""
+            echo "Change statistics:"
+            git diff --numstat | awk '{add+=$1; del+=$2} END {print "Lines added:", add, "Lines deleted:", del}'
+          fi
+
       - name: Create Pull Request with document updates
-        if: github.event_name != 'pull_request' || github.event.pull_request.state != 'closed'
+        if: steps.changes.outputs.has-changes == 'true' && env.DRY_RUN != 'true' && github.event_name != 'pull_request'
         uses: peter-evans/create-pull-request@v5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "docs: update documentation based on changes"
-          title: "Update documentation"
+          commit-message: |
+            📚 docs: automated documentation update
+            
+            - Risk level: ${{ needs.analyze-changes.outputs.risk-level }}
+            - Files analyzed: ${{ needs.analyze-changes.outputs.files-changed }}
+            - Documentation types: ${{ needs.analyze-changes.outputs.doc-types-needed }}
+            
+            Generated by Chroniclr Document Update System
+          title: "📚 Update documentation (${{ needs.analyze-changes.outputs.risk-level }} risk)"
           body: |
-            This PR updates documentation based on recent code changes.
+            ## 📚 Automated Documentation Update
             
-            ${PR_NUMBER:+Related to PR #${PR_NUMBER}}
-            ${SINCE:+Updates since: ${SINCE}}
-            ${FORCE_UPDATE:+Force update: true}
+            This PR contains automated documentation updates based on recent code changes.
             
-            Generated by the Chroniclr Document Update System.
+            ### 📊 Change Analysis
+            - **Files changed**: ${{ needs.analyze-changes.outputs.files-changed }}
+            - **Risk level**: ${{ needs.analyze-changes.outputs.risk-level }}
+            - **Documentation types affected**: ${{ needs.analyze-changes.outputs.doc-types-needed }}
+            
+            ${{ env.PR_NUMBER && format('- **Source PR**: #{0}', env.PR_NUMBER) || '' }}
+            ${{ env.SINCE && format('- **Changes since**: {0}', env.SINCE) || '' }}
+            ${{ env.FORCE_UPDATE && '- **Force update**: enabled' || '' }}
+            
+            ### ⚠️ Review Notes
+            ${{ needs.analyze-changes.outputs.risk-level == 'high' && '- **High-risk changes detected** - Please review carefully' || '' }}
+            ${{ needs.analyze-changes.outputs.risk-level == 'medium' && '- **Medium-risk changes** - Standard review recommended' || '' }}
+            - Automated merge resolution may have been applied
+            - Check for any merge conflict markers in the updated documents
+            - Verify that manual edits have been preserved
+            
+            ### 🤖 Automation Details
+            - Generated by: Chroniclr Document Update System
+            - Triggered by: `${{ github.event_name }}`
+            - Workflow run: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            
+            ---
+            *This PR was automatically created. Review the changes and merge when ready.*
           branch: docs/auto-update-${{ github.run_id }}
           delete-branch: true
-          labels: documentation
+          labels: |
+            documentation
+            automated
+            chroniclr
+            ${{ needs.analyze-changes.outputs.risk-level }}-risk
+
+      - name: Add PR comment for in-PR updates
+        if: steps.changes.outputs.has-changes == 'true' && github.event_name == 'pull_request' && env.DRY_RUN != 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const riskLevel = '${{ needs.analyze-changes.outputs.risk-level }}';
+            const filesChanged = '${{ needs.analyze-changes.outputs.files-changed }}';
+            const docTypes = '${{ needs.analyze-changes.outputs.doc-types-needed }}';
+            
+            const riskEmoji = {
+              'low': '🟢',
+              'medium': '🟡', 
+              'high': '🔴'
+            }[riskLevel] || '⚪';
+            
+            const body = `## 📚 Documentation Auto-Update
+            
+            ${riskEmoji} **Risk Level**: ${riskLevel}
+            📊 **Files Analyzed**: ${filesChanged}
+            📝 **Doc Types**: ${docTypes || 'general'}
+            
+            Documentation has been automatically updated based on the changes in this PR.
+            
+            ${riskLevel === 'high' ? '⚠️ **High-risk changes detected** - Please review the documentation updates carefully.' : ''}
+            
+            *Generated by Chroniclr Document Update System*`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+      - name: Summary
+        run: |
+          echo "## 📚 Document Update Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Risk Level**: ${{ needs.analyze-changes.outputs.risk-level }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Files Changed**: ${{ needs.analyze-changes.outputs.files-changed }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Documentation Types**: ${{ needs.analyze-changes.outputs.doc-types-needed }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Changes Generated**: ${{ steps.changes.outputs.has-changes }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ steps.changes.outputs.has-changes }}" == "true" ]]; then
+            echo "### 📝 Files Updated" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            git diff --name-only | head -10 >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ No documentation updates needed" >> $GITHUB_STEP_SUMMARY
+          fi

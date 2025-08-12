@@ -12,7 +12,8 @@
     "test-pr-templates": "node src/utils/pr-document-generator.js test-all",
     "test-pr-template": "node src/utils/pr-document-generator.js test",
     "update-documents": "node src/utils/update-documents.js",
-    "test-document-update": "node src/generators/test-document-update.js"
+    "test-document-update": "node src/generators/test-document-update.js",
+    "test-enhanced-system": "node test/test-enhanced-update-system.js"
   },
   "keywords": [
     "documentation",
