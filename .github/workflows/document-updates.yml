@@ -1,0 +1,508 @@
+name: 'Intelligent Documentation Updates'
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - '.chroniclr/**'
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+      - develop
+  schedule:
+    # Run weekly documentation maintenance
+    - cron: '0 2 * * 1'  # Mondays at 2 AM
+  workflow_dispatch:
+    inputs:
+      force_update:
+        description: 'Force update all documentation'
+        required: false
+        default: 'false'
+        type: boolean
+      analysis_only:
+        description: 'Run analysis only without updates'
+        required: false
+        default: 'false'
+        type: boolean
+      doc_types:
+        description: 'Specific document types to update (comma-separated)'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+  discussions: read
+  pull-requests: read
+  issues: write
+  models: read
+
+env:
+  NODE_VERSION: '18'
+
+jobs:
+  analyze-changes:
+    name: 'Analyze Code Changes'
+    runs-on: ubuntu-latest
+    outputs:
+      has-changes: ${{ steps.detect-changes.outputs.has-changes }}
+      changed-files: ${{ steps.detect-changes.outputs.changed-files }}
+      analysis-result: ${{ steps.analyze.outputs.analysis-result }}
+      
+    steps:
+      - name: 'Checkout Repository'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # Need at least 2 commits for comparison
+          
+      - name: 'Setup Node.js'
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          
+      - name: 'Install Dependencies'
+        run: npm ci
+        
+      - name: 'Detect Changes'
+        id: detect-changes
+        run: |
+          if [[ "${{ github.event_name }}" == "schedule" ]] || [[ "${{ inputs.force_update }}" == "true" ]]; then
+            echo "has-changes=true" >> $GITHUB_OUTPUT
+            echo "changed-files=*" >> $GITHUB_OUTPUT
+            echo "Scheduled run or force update - analyzing all files"
+          elif [[ "${{ github.event_name }}" == "pull_request" ]] && [[ "${{ github.event.pull_request.merged }}" == "true" ]]; then
+            # Get files changed in merged PR
+            CHANGED_FILES=$(gh api \
+              --method GET \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              /repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files \
+              --jq '.[] | select(.status != "removed") | .filename' | tr '\n' ',' | sed 's/,$//')
+            
+            if [[ -n "$CHANGED_FILES" ]]; then
+              echo "has-changes=true" >> $GITHUB_OUTPUT
+              echo "changed-files=$CHANGED_FILES" >> $GITHUB_OUTPUT
+              echo "Merged PR detected - analyzing files: $CHANGED_FILES"
+            else
+              echo "has-changes=false" >> $GITHUB_OUTPUT
+              echo "No relevant files changed in merged PR"
+            fi
+          else
+            # Get files changed in push
+            CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD | grep -v -E '^(docs/|.*\.md$|\.chroniclr/)' | tr '\n' ',' | sed 's/,$//')
+            
+            if [[ -n "$CHANGED_FILES" ]]; then
+              echo "has-changes=true" >> $GITHUB_OUTPUT
+              echo "changed-files=$CHANGED_FILES" >> $GITHUB_OUTPUT
+              echo "Push detected - analyzing files: $CHANGED_FILES"
+            else
+              echo "has-changes=false" >> $GITHUB_OUTPUT
+              echo "No relevant files changed in push"
+            fi
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: 'Analyze Documentation Status'
+        id: analyze
+        if: steps.detect-changes.outputs.has-changes == 'true'
+        run: |
+          echo "🔍 Running documentation analysis..."
+          
+          # Prepare file list for analysis
+          CHANGED_FILES="${{ steps.detect-changes.outputs.changed-files }}"
+          
+          # Run analysis
+          if [[ "$CHANGED_FILES" != "*" ]]; then
+            # Analyze specific files
+            node -e "
+              const { DocumentUpdateManager } = require('./src/utils/document-update-manager');
+              const fs = require('fs');
+              
+              async function analyze() {
+                const manager = new DocumentUpdateManager();
+                const fileList = '$CHANGED_FILES'.split(',').filter(f => f.trim() && fs.existsSync(f.trim()));
+                
+                console.log('Analyzing files:', fileList);
+                
+                const files = fileList.map(file => ({
+                  filename: file,
+                  status: 'modified',
+                  changes: 1,
+                  additions: 10,  // Placeholder values
+                  deletions: 5
+                }));
+                
+                const analysis = await manager.analyzeRepositoryChanges({ files });
+                
+                // Save analysis result
+                fs.writeFileSync('analysis-result.json', JSON.stringify(analysis, null, 2));
+                
+                console.log('Analysis complete:');
+                console.log('- Total documents:', analysis.totalDocuments || 0);
+                console.log('- Outdated documents:', analysis.outdatedDocuments.length);
+                console.log('- Update suggestions:', analysis.updateSuggestions.length);
+                console.log('- Risk level:', analysis.riskAssessment);
+              }
+              
+              analyze().catch(console.error);
+            "
+          else
+            # Analyze all documents
+            node -e "
+              const { DocumentUpdateManager } = require('./src/utils/document-update-manager');
+              const fs = require('fs');
+              
+              async function analyze() {
+                const manager = new DocumentUpdateManager();
+                const analysis = await manager.analyzeRepositoryChanges({});
+                
+                fs.writeFileSync('analysis-result.json', JSON.stringify(analysis, null, 2));
+                
+                console.log('Full analysis complete:');
+                console.log('- Total documents:', analysis.totalDocuments || 0);
+                console.log('- Outdated documents:', analysis.outdatedDocuments.length);
+                console.log('- Update suggestions:', analysis.updateSuggestions.length);
+              }
+              
+              analyze().catch(console.error);
+            "
+          fi
+          
+          # Output analysis result for next job
+          if [[ -f "analysis-result.json" ]]; then
+            ANALYSIS_RESULT=$(cat analysis-result.json | jq -c .)
+            echo "analysis-result=$ANALYSIS_RESULT" >> $GITHUB_OUTPUT
+          else
+            echo "analysis-result={}" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: 'Upload Analysis Artifact'
+        if: steps.detect-changes.outputs.has-changes == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: analysis-result
+          path: analysis-result.json
+          retention-days: 7
+
+  update-documentation:
+    name: 'Update Documentation'
+    runs-on: ubuntu-latest
+    needs: analyze-changes
+    if: |
+      needs.analyze-changes.outputs.has-changes == 'true' && 
+      (inputs.analysis_only != 'true') &&
+      (contains(needs.analyze-changes.outputs.analysis-result, '"updateSuggestions"') || inputs.force_update == 'true')
+      
+    steps:
+      - name: 'Checkout Repository'
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: 'Setup Node.js'
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          
+      - name: 'Install Dependencies'
+        run: npm ci
+        
+      - name: 'Download Analysis Result'
+        uses: actions/download-artifact@v4
+        with:
+          name: analysis-result
+          
+      - name: 'Update Documents'
+        id: update
+        run: |
+          echo "🔄 Starting documentation updates..."
+          
+          # Check if we should force update
+          FORCE_FLAG=""
+          if [[ "${{ inputs.force_update }}" == "true" ]]; then
+            FORCE_FLAG="--auto"
+          fi
+          
+          # Filter by document types if specified
+          DOC_TYPES="${{ inputs.doc_types }}"
+          
+          # Run the documentation update process
+          node -e "
+            const { DocumentUpdateManager } = require('./src/utils/document-update-manager');
+            const fs = require('fs');
+            
+            async function updateDocs() {
+              const manager = new DocumentUpdateManager();
+              
+              // Load analysis result
+              let analysis = {};
+              if (fs.existsSync('analysis-result.json')) {
+                analysis = JSON.parse(fs.readFileSync('analysis-result.json', 'utf8'));
+              }
+              
+              console.log('Processing', analysis.updateSuggestions?.length || 0, 'update suggestions');
+              
+              if (!analysis.updateSuggestions || analysis.updateSuggestions.length === 0) {
+                console.log('No updates needed');
+                return;
+              }
+              
+              // Filter suggestions by document types if specified
+              let suggestions = analysis.updateSuggestions;
+              const docTypes = '$DOC_TYPES'.split(',').map(t => t.trim()).filter(t => t);
+              if (docTypes.length > 0) {
+                suggestions = suggestions.filter(s => docTypes.includes(s.type));
+                console.log('Filtered to', suggestions.length, 'suggestions for types:', docTypes);
+              }
+              
+              // Content generator function
+              const contentGenerator = async (type, suggestion) => {
+                // For now, return placeholder content
+                return \`# \${type.replace(/_/g, ' ').replace(/\\b\\w/g, l => l.toUpperCase())}
+                
+<!-- AI_GENERATED_START -->
+<!-- AI_TIMESTAMP: \${new Date().toISOString()} -->
+
+## Update Summary
+
+This document was updated based on detected code changes.
+
+**Reason:** \${suggestion.reason}
+**Priority:** \${suggestion.priority}
+**Type:** \${suggestion.type}
+
+\${suggestion.documents ? '**Affected Documents:**\\n' + suggestion.documents.map(d => '- ' + d).join('\\n') : ''}
+
+<!-- AI_GENERATED_END -->
+\`;
+              };
+              
+              // Perform updates
+              const results = await manager.updateDocuments(suggestions, contentGenerator);
+              
+              // Generate report
+              const report = manager.generateUpdateReport(analysis, results);
+              
+              // Save report
+              const reportResult = manager.saveUpdateReport(report, 'github-actions-update-report.json');
+              
+              console.log('Update complete:');
+              console.log('- Successful updates:', report.summary.updatesSuccessful);
+              console.log('- Failed updates:', report.summary.updatesFailed);
+              console.log('- Report saved:', reportResult.success);
+              
+              // Set outputs for next steps
+              fs.writeFileSync('update-summary.json', JSON.stringify({
+                successful: report.summary.updatesSuccessful,
+                failed: report.summary.updatesFailed,
+                total: report.summary.updatesAttempted
+              }));
+            }
+            
+            updateDocs().catch(console.error);
+          "
+          
+          # Check if any files were updated
+          if git diff --quiet; then
+            echo "updated-files=false" >> $GITHUB_OUTPUT
+            echo "No files were updated"
+          else
+            echo "updated-files=true" >> $GITHUB_OUTPUT
+            echo "Files were updated"
+            git status --porcelain
+          fi
+          
+      - name: 'Upload Update Report'
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: update-report
+          path: |
+            docs/reports/github-actions-update-report.json
+            update-summary.json
+          retention-days: 30
+          
+      - name: 'Create Pull Request'
+        if: steps.update.outputs.updated-files == 'true'
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: |
+            📚 Automated documentation updates
+            
+            Updates generated by Chroniclr intelligent document update system.
+            
+            Trigger: ${{ github.event_name }}
+            ${{ github.event_name == 'pull_request' && format('Merged PR: #{0}', github.event.pull_request.number) || '' }}
+            ${{ github.event_name == 'push' && format('Commit: {0}', github.sha) || '' }}
+            ${{ github.event_name == 'schedule' && 'Scheduled maintenance' || '' }}
+            ${{ inputs.force_update == 'true' && 'Force update requested' || '' }}
+          title: '📚 Automated Documentation Updates'
+          body: |
+            ## 🤖 Automated Documentation Updates
+            
+            This PR contains documentation updates generated by the Chroniclr intelligent document update system.
+            
+            ### Trigger Information
+            - **Event:** ${{ github.event_name }}
+            ${{ github.event_name == 'pull_request' && format('- **Merged PR:** #{0} - {1}', github.event.pull_request.number, github.event.pull_request.title) || '' }}
+            ${{ github.event_name == 'push' && format('- **Commit:** {0}', github.sha) || '' }}
+            ${{ github.event_name == 'schedule' && '- **Type:** Scheduled maintenance' || '' }}
+            ${{ inputs.force_update == 'true' && '- **Type:** Force update requested' || '' }}
+            - **Timestamp:** ${{ github.event.created_at || github.event.head_commit.timestamp || 'now' }}
+            
+            ### Changes Made
+            The system analyzed code changes and automatically updated documentation based on:
+            - Detected API changes
+            - New features or functionality
+            - Breaking changes requiring migration documentation
+            - Security updates
+            - General maintenance
+            
+            ### Manual Review Needed
+            Please review the updated documentation to ensure:
+            - ✅ Technical accuracy
+            - ✅ Consistency with existing content  
+            - ✅ Preserved manual edits are still relevant
+            - ✅ New AI-generated content is appropriate
+            
+            ### Files Changed
+            The following documentation files were updated:
+            <!-- The actual file list will be shown by GitHub automatically -->
+            
+            ---
+            
+            *This PR was created automatically by the Chroniclr intelligent document update system.*
+            *Report files have been saved to the `docs/reports/` directory for detailed analysis.*
+            
+          branch: docs/automated-updates-${{ github.run_id }}
+          labels: |
+            documentation
+            automated
+            chroniclr
+            ai-generated
+          assignees: ${{ github.actor }}
+          draft: false
+
+  post-update-analysis:
+    name: 'Post-Update Analysis'
+    runs-on: ubuntu-latest
+    needs: [analyze-changes, update-documentation]
+    if: always() && needs.analyze-changes.outputs.has-changes == 'true'
+    
+    steps:
+      - name: 'Checkout Repository'
+        uses: actions/checkout@v4
+        
+      - name: 'Setup Node.js'
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          
+      - name: 'Install Dependencies'
+        run: npm ci
+        
+      - name: 'Download Reports'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "*-report*"
+          merge-multiple: true
+          
+      - name: 'Generate Summary'
+        run: |
+          echo "📊 Generating workflow summary..."
+          
+          node -e "
+            const fs = require('fs');
+            
+            console.log('## 📚 Documentation Update Summary');
+            console.log('');
+            console.log('**Workflow:** Intelligent Documentation Updates');
+            console.log('**Trigger:** ${{ github.event_name }}');
+            console.log('**Run ID:** ${{ github.run_id }}');
+            console.log('**Timestamp:** ${{ github.event.created_at || github.event.head_commit.timestamp || 'now' }}');
+            console.log('');
+            
+            // Load analysis result
+            if (fs.existsSync('analysis-result.json')) {
+              const analysis = JSON.parse(fs.readFileSync('analysis-result.json', 'utf8'));
+              console.log('### Analysis Results');
+              console.log('- **Total Documents:** ' + (analysis.totalDocuments || 0));
+              console.log('- **Outdated Documents:** ' + (analysis.outdatedDocuments?.length || 0));
+              console.log('- **Update Suggestions:** ' + (analysis.updateSuggestions?.length || 0));
+              console.log('- **Risk Level:** ' + (analysis.riskAssessment || 'unknown'));
+              console.log('');
+            }
+            
+            // Load update summary
+            if (fs.existsSync('update-summary.json')) {
+              const summary = JSON.parse(fs.readFileSync('update-summary.json', 'utf8'));
+              console.log('### Update Results');
+              console.log('- **Total Updates Attempted:** ' + summary.total);
+              console.log('- **Successful Updates:** ' + summary.successful);
+              console.log('- **Failed Updates:** ' + summary.failed);
+              console.log('- **Success Rate:** ' + Math.round((summary.successful / Math.max(summary.total, 1)) * 100) + '%');
+              console.log('');
+            }
+            
+            console.log('### Next Steps');
+            if (fs.existsSync('update-summary.json')) {
+              const summary = JSON.parse(fs.readFileSync('update-summary.json', 'utf8'));
+              if (summary.successful > 0) {
+                console.log('- Review and merge the generated PR with updated documentation');
+                console.log('- Validate the accuracy of AI-generated content');
+                console.log('- Check that manual edits were properly preserved');
+              }
+              if (summary.failed > 0) {
+                console.log('- Investigate and resolve failed updates');
+                console.log('- Check error logs in the update report');
+              }
+            } else {
+              console.log('- No updates were needed at this time');
+              console.log('- Documentation appears to be up-to-date');
+            }
+          "
+          
+      - name: 'Create Issue for Failed Updates'
+        if: needs.update-documentation.result == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            
+            let issueBody = \`## 🚨 Documentation Update Failure
+            
+            The automated documentation update workflow failed during execution.
+            
+            **Workflow Run:** [\${{ github.run_id }}](\${{ github.server_url }}/\${{ github.repository }}/actions/runs/\${{ github.run_id }})
+            **Trigger:** \${{ github.event_name }}
+            **Timestamp:** \${{ github.event.created_at || github.event.head_commit.timestamp }}
+            
+            ### Failure Details
+            Please check the workflow logs for detailed error information.
+            
+            ### Manual Steps Required
+            1. Review the workflow logs to identify the cause of failure
+            2. Fix any configuration or permission issues
+            3. Re-run the workflow or update documentation manually
+            4. Close this issue once resolved
+            
+            ---
+            *This issue was created automatically by the Chroniclr documentation update system.*\`;
+            
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Automated Documentation Update Failed',
+              body: issueBody,
+              labels: ['bug', 'documentation', 'chroniclr', 'automated']
+            });

@@ -10,7 +10,10 @@
     "generate-document": "node src/generators/ai-document-generator.js",
     "create-action-items": "node src/utils/issue-creator.js",
     "test-pr-templates": "node src/utils/pr-document-generator.js test-all",
-    "test-pr-template": "node src/utils/pr-document-generator.js test"
+    "test-pr-template": "node src/utils/pr-document-generator.js test",
+    "update-docs": "node bin/chroniclr update-docs",
+    "analyze-docs": "node bin/chroniclr analyze-docs",
+    "doc-status": "node bin/chroniclr doc-status"
   },
   "keywords": [
     "documentation",

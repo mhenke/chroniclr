@@ -7,12 +7,34 @@
 
 const path = require('path');
 const SummaryGenerator = require('../src/generators/summary-generator');
+const { DocumentUpdateManager } = require('../src/utils/document-update-manager');
+const { DocumentTracker } = require('../src/utils/document-tracker');
 
 const commands = {
   'generate-summary': {
     description: 'Generate a project summary document from a GitHub discussion',
     usage: 'chroniclr generate-summary <discussion-url>',
     handler: handleGenerateSummary
+  },
+  'update-docs': {
+    description: 'Update documentation based on code changes',
+    usage: 'chroniclr update-docs [options]',
+    handler: handleUpdateDocs
+  },
+  'analyze-docs': {
+    description: 'Analyze documentation status and generate update suggestions',
+    usage: 'chroniclr analyze-docs [options]',
+    handler: handleAnalyzeDocs
+  },
+  'track-doc': {
+    description: 'Start tracking a documentation file',
+    usage: 'chroniclr track-doc <file-path> [options]',
+    handler: handleTrackDoc
+  },
+  'doc-status': {
+    description: 'Show documentation tracking status and report',
+    usage: 'chroniclr doc-status',
+    handler: handleDocStatus
   },
   'help': {
     description: 'Show help information',
@@ -59,6 +81,413 @@ async function handleGenerateSummary(args) {
   }
 }
 
+async function handleUpdateDocs(args) {
+  console.log('🔄 Starting documentation update process...');
+  
+  try {
+    const updateManager = new DocumentUpdateManager();
+    
+    // Parse options
+    const options = parseUpdateOptions(args);
+    
+    if (options.help) {
+      showUpdateDocsHelp();
+      return;
+    }
+    
+    // Analyze repository changes
+    console.log('🔍 Analyzing repository for changes...');
+    const analysis = await updateManager.analyzeRepositoryChanges(options);
+    
+    if (analysis.error) {
+      console.error(`❌ Analysis failed: ${analysis.error}`);
+      process.exit(1);
+    }
+    
+    console.log(`📊 Analysis complete: ${analysis.updateSuggestions.length} suggestions found`);
+    
+    if (analysis.updateSuggestions.length === 0) {
+      console.log('✅ No documentation updates needed');
+      return;
+    }
+    
+    // Show suggestions
+    console.log('\n📋 Update Suggestions:');
+    analysis.updateSuggestions.forEach((suggestion, index) => {
+      const priority = suggestion.priority === 'high' ? '🔴' : 
+                     suggestion.priority === 'medium' ? '🟡' : '🟢';
+      console.log(`  ${index + 1}. ${priority} ${suggestion.type}: ${suggestion.reason}`);
+      if (suggestion.documents) {
+        console.log(`     Files: ${suggestion.documents.join(', ')}`);
+      }
+    });
+    
+    // Ask for confirmation unless auto mode
+    if (!options.auto) {
+      const readline = require('readline');
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout
+      });
+      
+      const answer = await new Promise(resolve => {
+        rl.question('\n❓ Proceed with updates? (y/N): ', resolve);
+      });
+      rl.close();
+      
+      if (answer.toLowerCase() !== 'y' && answer.toLowerCase() !== 'yes') {
+        console.log('❌ Update cancelled');
+        return;
+      }
+    }
+    
+    // Perform updates
+    console.log('📝 Updating documents...');
+    const results = await updateManager.updateDocuments(analysis.updateSuggestions, options.contentGenerator);
+    
+    // Generate and display report
+    const report = updateManager.generateUpdateReport(analysis, results);
+    
+    console.log(`\n✅ Update complete: ${report.summary.updatesSuccessful}/${report.summary.updatesAttempted} successful`);
+    
+    if (report.summary.updatesFailed > 0) {
+      console.log(`❌ ${report.summary.updatesFailed} updates failed:`);
+      results.filter(r => !r.success).forEach(r => {
+        console.log(`   - ${r.filePath || r.suggestionType}: ${r.error}`);
+      });
+    }
+    
+    // Show recommendations
+    if (report.recommendations.length > 0) {
+      console.log('\n💡 Recommendations:');
+      report.recommendations.forEach(rec => {
+        const priority = rec.priority === 'high' ? '🔴' : 
+                        rec.priority === 'medium' ? '🟡' : '🟢';
+        console.log(`  ${priority} ${rec.message}`);
+      });
+    }
+    
+    // Save report if requested
+    if (options.saveReport) {
+      const reportResult = updateManager.saveUpdateReport(report);
+      if (reportResult.success) {
+        console.log(`\n📄 Report saved: ${reportResult.reportPath}`);
+      }
+    }
+    
+  } catch (error) {
+    console.error(`❌ Update failed: ${error.message}`);
+    process.exit(1);
+  }
+}
+
+async function handleAnalyzeDocs(args) {
+  console.log('🔍 Analyzing documentation status...');
+  
+  try {
+    const updateManager = new DocumentUpdateManager();
+    const options = parseAnalyzeOptions(args);
+    
+    if (options.help) {
+      showAnalyzeDocsHelp();
+      return;
+    }
+    
+    // Perform analysis
+    const analysis = await updateManager.analyzeRepositoryChanges(options);
+    
+    if (analysis.error) {
+      console.error(`❌ Analysis failed: ${analysis.error}`);
+      process.exit(1);
+    }
+    
+    // Display results
+    console.log('\n📊 Documentation Status Report:');
+    console.log(`   Total Documents: ${analysis.totalDocuments || 0}`);
+    console.log(`   Outdated Documents: ${analysis.outdatedDocuments.length}`);
+    console.log(`   Update Suggestions: ${analysis.updateSuggestions.length}`);
+    console.log(`   Risk Level: ${analysis.riskAssessment}`);
+    
+    if (analysis.outdatedDocuments.length > 0) {
+      console.log('\n📋 Outdated Documents:');
+      analysis.outdatedDocuments.forEach(doc => {
+        console.log(`   - ${doc.path} (${doc.outdatedReason.reason})`);
+      });
+    }
+    
+    if (analysis.updateSuggestions.length > 0) {
+      console.log('\n💡 Update Suggestions:');
+      analysis.updateSuggestions.forEach((suggestion, index) => {
+        const priority = suggestion.priority === 'high' ? '🔴' : 
+                        suggestion.priority === 'medium' ? '🟡' : '🟢';
+        console.log(`   ${index + 1}. ${priority} ${suggestion.type}: ${suggestion.reason}`);
+      });
+    }
+    
+    // Save analysis if requested
+    if (options.saveReport) {
+      const updateManager = new DocumentUpdateManager();
+      const report = updateManager.generateUpdateReport(analysis, []);
+      const reportResult = updateManager.saveUpdateReport(report, 'analysis-report.json');
+      if (reportResult.success) {
+        console.log(`\n📄 Analysis saved: ${reportResult.reportPath}`);
+      }
+    }
+    
+  } catch (error) {
+    console.error(`❌ Analysis failed: ${error.message}`);
+    process.exit(1);
+  }
+}
+
+async function handleTrackDoc(args) {
+  if (args.length === 0) {
+    console.error('❌ Error: File path is required');
+    console.error('Usage: chroniclr track-doc <file-path> [options]');
+    process.exit(1);
+  }
+  
+  const filePath = args[0];
+  const options = parseTrackOptions(args.slice(1));
+  
+  console.log(`📝 Starting to track document: ${filePath}`);
+  
+  try {
+    const tracker = new DocumentTracker();
+    
+    // Check if file exists
+    if (!require('fs').existsSync(filePath)) {
+      console.error(`❌ Error: File does not exist: ${filePath}`);
+      process.exit(1);
+    }
+    
+    // Track the document
+    const docInfo = tracker.trackDocument(filePath, {
+      type: options.type || 'manual',
+      source: options.source || 'manual',
+      dependencies: options.dependencies || [],
+      changes: `Started tracking via CLI`
+    });
+    
+    console.log('✅ Document tracking started successfully!');
+    console.log(`   Document ID: ${docInfo.id}`);
+    console.log(`   Type: ${docInfo.type}`);
+    console.log(`   Version: ${docInfo.version}`);
+    console.log(`   Source: ${docInfo.source}`);
+    
+    if (docInfo.dependencies.length > 0) {
+      console.log(`   Dependencies: ${docInfo.dependencies.join(', ')}`);
+    }
+    
+  } catch (error) {
+    console.error(`❌ Failed to track document: ${error.message}`);
+    process.exit(1);
+  }
+}
+
+async function handleDocStatus(args) {
+  console.log('📊 Generating documentation status report...');
+  
+  try {
+    const tracker = new DocumentTracker();
+    const report = tracker.generateTrackingReport();
+    
+    console.log('\n📋 Documentation Tracking Report:');
+    console.log(`   Total Documents: ${report.summary.totalDocuments}`);
+    console.log(`   Outdated: ${report.summary.outdatedDocuments}`);
+    console.log(`   AI Generated: ${report.summary.aiGenerated}`);
+    console.log(`   Manual: ${report.summary.manualDocuments}`);
+    console.log(`   Mixed: ${report.summary.mixedDocuments}`);
+    console.log(`   Last Update: ${new Date(report.summary.lastUpdate).toLocaleDateString()}`);
+    
+    if (report.outdatedDocuments.length > 0) {
+      console.log('\n⚠️  Outdated Documents:');
+      report.outdatedDocuments.forEach(doc => {
+        console.log(`   - ${doc.path} (${doc.reason})`);
+        if (doc.details.dependency) {
+          console.log(`     Dependency changed: ${doc.details.dependency}`);
+        }
+      });
+    }
+    
+    if (Object.keys(report.documentTypes).length > 0) {
+      console.log('\n📄 Document Types:');
+      Object.entries(report.documentTypes).forEach(([type, count]) => {
+        console.log(`   - ${type}: ${count}`);
+      });
+    }
+    
+    console.log('\n📈 Update Frequency:');
+    console.log(`   Daily: ${report.updateFrequency.daily}`);
+    console.log(`   Weekly: ${report.updateFrequency.weekly}`);
+    console.log(`   Monthly: ${report.updateFrequency.monthly}`);
+    console.log(`   Older: ${report.updateFrequency.older}`);
+    
+    // Save report option
+    const saveReport = args.includes('--save') || args.includes('-s');
+    if (saveReport) {
+      const fs = require('fs');
+      const path = require('path');
+      
+      const reportsDir = path.join(process.cwd(), 'docs', 'reports');
+      if (!fs.existsSync(reportsDir)) {
+        fs.mkdirSync(reportsDir, { recursive: true });
+      }
+      
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const reportFile = path.join(reportsDir, `status-report-${timestamp}.json`);
+      fs.writeFileSync(reportFile, JSON.stringify(report, null, 2));
+      
+      console.log(`\n📄 Report saved: ${reportFile}`);
+    }
+    
+  } catch (error) {
+    console.error(`❌ Failed to generate status report: ${error.message}`);
+    process.exit(1);
+  }
+}
+
+function parseUpdateOptions(args) {
+  const options = {
+    auto: false,
+    saveReport: false,
+    contentGenerator: null,
+    files: []
+  };
+  
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    switch (arg) {
+      case '--auto':
+      case '-a':
+        options.auto = true;
+        break;
+      case '--save-report':
+      case '-s':
+        options.saveReport = true;
+        break;
+      case '--files':
+      case '-f':
+        if (i + 1 < args.length) {
+          options.files = args[i + 1].split(',').map(f => f.trim());
+          i++;
+        }
+        break;
+      case '--help':
+      case '-h':
+        options.help = true;
+        break;
+    }
+  }
+  
+  return options;
+}
+
+function parseAnalyzeOptions(args) {
+  const options = {
+    saveReport: false,
+    files: []
+  };
+  
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    switch (arg) {
+      case '--save-report':
+      case '-s':
+        options.saveReport = true;
+        break;
+      case '--files':
+      case '-f':
+        if (i + 1 < args.length) {
+          options.files = args[i + 1].split(',').map(f => f.trim());
+          i++;
+        }
+        break;
+      case '--help':
+      case '-h':
+        options.help = true;
+        break;
+    }
+  }
+  
+  return options;
+}
+
+function parseTrackOptions(args) {
+  const options = {
+    type: null,
+    source: 'manual',
+    dependencies: []
+  };
+  
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    switch (arg) {
+      case '--type':
+      case '-t':
+        if (i + 1 < args.length) {
+          options.type = args[i + 1];
+          i++;
+        }
+        break;
+      case '--source':
+        if (i + 1 < args.length) {
+          options.source = args[i + 1];
+          i++;
+        }
+        break;
+      case '--dependencies':
+      case '-d':
+        if (i + 1 < args.length) {
+          options.dependencies = args[i + 1].split(',').map(d => d.trim());
+          i++;
+        }
+        break;
+    }
+  }
+  
+  return options;
+}
+
+function showUpdateDocsHelp() {
+  console.log(`
+📖 chroniclr update-docs - Update documentation based on code changes
+
+Usage:
+  chroniclr update-docs [options]
+
+Options:
+  -a, --auto           Run updates automatically without confirmation
+  -s, --save-report    Save update report to file
+  -f, --files <files>  Comma-separated list of changed files to analyze
+  -h, --help          Show this help message
+
+Examples:
+  chroniclr update-docs
+  chroniclr update-docs --auto --save-report
+  chroniclr update-docs --files src/api.js,src/auth.js
+`);
+}
+
+function showAnalyzeDocsHelp() {
+  console.log(`
+📖 chroniclr analyze-docs - Analyze documentation status and generate suggestions
+
+Usage:
+  chroniclr analyze-docs [options]
+
+Options:
+  -s, --save-report    Save analysis report to file
+  -f, --files <files>  Comma-separated list of files to analyze
+  -h, --help          Show this help message
+
+Examples:
+  chroniclr analyze-docs
+  chroniclr analyze-docs --save-report
+  chroniclr analyze-docs --files src/**/*.js
+`);
+}
+
 function handleHelp(args) {
   if (args.length > 0) {
     const command = args[0];
@@ -74,8 +503,7 @@ function handleHelp(args) {
   console.log(`
 🤖 Chroniclr - AI-powered documentation automation
 
-Available Commands:
-`);
+Available Commands:`);
   
   Object.entries(commands).forEach(([name, info]) => {
     console.log(`  ${name.padEnd(16)} ${info.description}`);
@@ -88,6 +516,9 @@ Usage:
 
 Examples:
   chroniclr generate-summary https://github.com/microsoft/vscode/discussions/1234
+  chroniclr update-docs --auto
+  chroniclr analyze-docs --save-report
+  chroniclr doc-status
   chroniclr help generate-summary
 `);
 }

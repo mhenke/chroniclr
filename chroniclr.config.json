@@ -40,7 +40,43 @@
     },
     "autoGenerate": true,
     "createPR": true,
-    "autoMerge": false
+    "autoMerge": false,
+    "updateSystem": {
+      "enabled": true,
+      "trackingEnabled": true,
+      "smartMerging": true,
+      "preserveManualEdits": true,
+      "updateFrequency": "on-change",
+      "riskAssessment": true,
+      "updateSuggestions": true,
+      "generateReports": true
+    },
+    "dependencies": {
+      "apiDocumentation": ["src/**/*.js", "src/**/*.ts", "routes/**/*", "api/**/*"],
+      "userGuide": ["src/components/**/*", "src/pages/**/*", "public/**/*"],
+      "securityDocs": ["**/auth*", "**/security*", "**/middleware*", "**/permissions*"],
+      "migrationGuides": ["CHANGELOG.md", "package.json", "src/migrations/**/*"],
+      "technicalDocs": ["src/**/*", "config/**/*", "scripts/**/*"]
+    },
+    "markers": {
+      "aiGenerated": {
+        "start": "<!-- AI_GENERATED_START -->",
+        "end": "<!-- AI_GENERATED_END -->",
+        "timestamp": "<!-- AI_TIMESTAMP: {timestamp} -->",
+        "version": "<!-- AI_VERSION: {version} -->"
+      },
+      "manualEdit": {
+        "start": "<!-- MANUAL_EDIT_START -->",
+        "end": "<!-- MANUAL_EDIT_END -->",
+        "timestamp": "<!-- MANUAL_TIMESTAMP: {timestamp} -->",
+        "author": "<!-- MANUAL_AUTHOR: {author} -->"
+      },
+      "preserve": {
+        "start": "<!-- PRESERVE_START -->",
+        "end": "<!-- PRESERVE_END -->",
+        "label": "<!-- PRESERVE_LABEL: {label} -->"
+      }
+    }
   },
   "ai": {
     "provider": "github-models",
