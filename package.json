@@ -8,7 +8,9 @@
     "process-labels": "node src/utils/process-labels.js",
     "setup-env": "node src/utils/setup-env.js",
     "generate-document": "node src/generators/ai-document-generator.js",
-    "create-action-items": "node src/utils/issue-creator.js"
+    "create-action-items": "node src/utils/issue-creator.js",
+    "test-pr-templates": "node src/utils/pr-document-generator.js test-all",
+    "test-pr-template": "node src/utils/pr-document-generator.js test"
   },
   "keywords": [
     "documentation",
