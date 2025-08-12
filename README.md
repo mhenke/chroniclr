@@ -17,6 +17,7 @@ Chroniclr is a comprehensive project intelligence system that generates document
 - **Cross-Platform Correlation** - Automatically links related artifacts when using multiple sources
 - **Community Engagement Analysis** - Prioritizes content based on emoji reactions and engagement
 - **Smart Task Management** - Creates GitHub issues with assignments, priorities, and due dates
+- **Intelligent Document Updates** - Automatically detects and updates outdated documentation
 
 ### 📚 **Generated Documentation Types**
 **From Discussions:** Project summaries, initiative briefs, meeting notes, changelogs
@@ -321,6 +322,34 @@ gh run view [run-id] --log
 - Robust error handling with fallback mechanisms
 - Comprehensive logging for debugging and monitoring
 - Battle-tested with realistic discussion scenarios
+
+## Document Update System
+
+The intelligent document update system automatically detects and refreshes outdated documentation:
+
+### Features
+
+- **Smart Detection**: Identifies documents that need updating based on code changes
+- **Change Impact Analysis**: Determines which documents are affected by specific code changes
+- **Conflict Resolution**: Preserves manually edited sections while updating automated content
+- **Document Versioning**: Tracks document versions and modification history
+- **Update Reports**: Generates detailed reports of document updates
+
+### Usage
+
+```bash
+# Update documents based on a specific PR
+npm run update-documents -- --pr=123
+
+# Force update all documents
+npm run update-documents -- --force
+
+# Show what would be updated without making changes
+npm run update-documents -- --dry-run
+
+# Update documents changed since a specific date
+npm run update-documents -- --since=2025-01-01
+```
 
 ## 🤝 Contributing
 

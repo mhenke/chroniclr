@@ -40,7 +40,25 @@
     },
     "autoGenerate": true,
     "createPR": true,
-    "autoMerge": false
+    "autoMerge": false,
+    "updateSystem": {
+      "enabled": true,
+      "updateThreshold": 30,
+      "createPRForUpdates": true,
+      "preserveMarkers": [
+        "<!-- manual-edit -->",
+        "<!-- preserve -->",
+        "<!-- do not update -->",
+        "<!-- custom content -->"
+      ],
+      "documentTypes": {
+        "api": ["API.md", "api-reference.md", "endpoints.md"],
+        "userGuide": ["README.md", "user-guide.md", "getting-started.md"],
+        "technical": ["ARCHITECTURE.md", "deployment.md", "technical-guide.md"],
+        "migration": ["MIGRATION.md", "CHANGELOG.md", "breaking-changes.md"],
+        "security": ["SECURITY.md", "auth-guide.md", "security-policy.md"]
+      }
+    }
   },
   "ai": {
     "provider": "github-models",

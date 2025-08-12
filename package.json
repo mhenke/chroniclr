@@ -10,7 +10,9 @@
     "generate-document": "node src/generators/ai-document-generator.js",
     "create-action-items": "node src/utils/issue-creator.js",
     "test-pr-templates": "node src/utils/pr-document-generator.js test-all",
-    "test-pr-template": "node src/utils/pr-document-generator.js test"
+    "test-pr-template": "node src/utils/pr-document-generator.js test",
+    "update-documents": "node src/utils/update-documents.js",
+    "test-document-update": "node src/generators/test-document-update.js"
   },
   "keywords": [
     "documentation",
