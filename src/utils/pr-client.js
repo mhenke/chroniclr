@@ -19,7 +19,49 @@ class PullRequestClient {
 
   loadConfiguration() {
     try {
-      const configPath = path.join(process.cwd(), 'chroniclr.config.json');
+      const configPa  /**
+   * Apply additional filters based on configuration
+   */
+  applyConfigFilters(prs) {
+    const config = this.config?.modules?.jiraIntegration || {};
+    const excludeLabels = config.excludeLabels || [];
+    const excludeAuthors = config.excludeAuthors || [];
+    const maxAge = parseInt(config.maxPrAgeInDays) || 0;
+    
+    if (!excludeLabels.length && !excludeAuthors.length && !maxAge) {
+      return prs; // No filters to apply
+    }
+    
+    return prs.filter(pr => {
+      // Filter by labels if specified
+      if (excludeLabels.length && pr.labels) {
+        const hasExcludedLabel = pr.labels.some(label => 
+          excludeLabels.includes(label.name)
+        );
+        if (hasExcludedLabel) return false;
+      }
+      
+      // Filter by authors if specified
+      if (excludeAuthors.length && pr.author) {
+        if (excludeAuthors.includes(pr.author)) return false;
+      }
+      
+      // Filter by age if specified
+      if (maxAge && pr.created_at) {
+        const prDate = new Date(pr.created_at);
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - maxAge);
+        if (prDate < cutoffDate) return false;
+      }
+      
+      return true;
+    });
+  }
+  
+  /**
+   * Get comprehensive PR data for analysis
+   */
+  async getPullRequestData(prNumber = null) { path.join(process.cwd(), 'chroniclr.config.json');
       const configData = fs.readFileSync(configPath, 'utf8');
       const config = JSON.parse(configData);
       return config.pullRequests || { enabled: false, modules: {} };
@@ -81,28 +123,49 @@ class PullRequestClient {
     const discoveredPRs = new Map(); // PR number -> { number, confidence, sources, title }
     const maxDiscoveries = parseInt(process.env.MAX_DISCOVERIES) || 20;
     const discoveryScope = process.env.DISCOVERY_SCOPE || 'recent';
+    const useStrategies = process.env.DISCOVERY_STRATEGIES || 'all';
     
     core.info(`🔍 Starting enhanced Jira discovery for keys: ${jiraKeys.join(', ')}`);
-    core.info(`📊 Scope: ${discoveryScope}, Max discoveries: ${maxDiscoveries}`);
+    core.info(`📊 Scope: ${discoveryScope}, Max discoveries: ${maxDiscoveries}, Strategies: ${useStrategies}`);
+    
+    const strategies = useStrategies === 'all' ? 
+      ['title-body', 'case-insensitive', 'branch', 'commit', 'comment', 'label'] : 
+      useStrategies.split(',').map(s => s.trim());
     
     for (const jiraKey of jiraKeys) {
       try {
         core.info(`\n🔎 Analyzing Jira key: ${jiraKey}`);
         
         // Strategy 1: Exact key matching in PR titles and bodies
-        await this.searchPRsByKeyword(jiraKey, discoveredPRs, 'exact', discoveryScope);
+        if (strategies.includes('title-body')) {
+          await this.searchPRsByKeyword(jiraKey, discoveredPRs, 'exact', discoveryScope);
+        }
         
         // Strategy 2: Case-insensitive matching
         const lowerKey = jiraKey.toLowerCase();
-        if (lowerKey !== jiraKey) {
+        if (strategies.includes('case-insensitive') && lowerKey !== jiraKey) {
           await this.searchPRsByKeyword(lowerKey, discoveredPRs, 'case-insensitive', discoveryScope);
         }
         
         // Strategy 3: Branch name analysis
-        await this.searchPRsByBranches(jiraKey, discoveredPRs, discoveryScope);
+        if (strategies.includes('branch')) {
+          await this.searchPRsByBranches(jiraKey, discoveredPRs, discoveryScope);
+        }
         
         // Strategy 4: Commit message scanning (for merged PRs)
-        await this.searchPRsByCommits(jiraKey, discoveredPRs, discoveryScope);
+        if (strategies.includes('commit')) {
+          await this.searchPRsByCommits(jiraKey, discoveredPRs, discoveryScope);
+        }
+        
+        // Strategy 5: Comment text analysis
+        if (strategies.includes('comment')) {
+          await this.searchPRsByComments(jiraKey, discoveredPRs, discoveryScope);
+        }
+        
+        // Strategy 6: Label-based discovery
+        if (strategies.includes('label')) {
+          await this.searchPRsByLabels(jiraKey, discoveredPRs, discoveryScope);
+        }
         
         // Early exit if we hit discovery limits
         if (discoveredPRs.size >= maxDiscoveries) {
@@ -116,15 +179,23 @@ class PullRequestClient {
       }
     }
     
+    // Apply confidence threshold filtering
+    const confidenceThreshold = parseFloat(process.env.CONFIDENCE_THRESHOLD) || 0.0;
+    let filteredPRs = Array.from(discoveredPRs.values())
+      .filter(pr => pr.confidence >= confidenceThreshold);
+      
     // Sort by confidence and apply final limits
-    const sortedPRs = Array.from(discoveredPRs.values())
+    const sortedPRs = filteredPRs
       .sort((a, b) => b.confidence - a.confidence)
       .slice(0, maxDiscoveries);
     
     // Log discovery summary
-    this.logDiscoverySummary(sortedPRs, jiraKeys);
+    const discoveryReport = this.logDiscoverySummary(sortedPRs, jiraKeys);
     
-    return sortedPRs.map(pr => pr.number);
+    // Apply any additional filters based on configuration
+    const configFilteredPRs = this.applyConfigFilters(sortedPRs);
+    
+    return configFilteredPRs.map(pr => pr.number);
   }
 
   /**
@@ -238,6 +309,112 @@ class PullRequestClient {
       core.warning(`  └─ commit-analysis failed: ${error.message}`);
     }
   }
+  
+  /**
+   * Search for PRs by analyzing comments for Jira references
+   */
+  async searchPRsByComments(jiraKey, discoveredPRs, scope) {
+    try {
+      // Search for comments containing the Jira key
+      const batchSize = parseInt(process.env.BATCH_SIZE) || 10;
+      let totalFound = 0;
+      
+      // First get potential PRs to check
+      const searchQuery = `repo:${this.context.repo.owner}/${this.context.repo.repo} is:pr comments:>0`;
+      const { data: potentialPRs } = await this.github.rest.search.issuesAndPullRequests({
+        q: searchQuery,
+        sort: 'updated',
+        order: 'desc',
+        per_page: batchSize
+      });
+      
+      for (const pr of potentialPRs.items) {
+        if (pr.pull_request) {
+          try {
+            // Fetch comments for each PR
+            const { data: comments } = await this.github.rest.issues.listComments({
+              owner: this.context.repo.owner,
+              repo: this.context.repo.repo,
+              issue_number: pr.number
+            });
+            
+            // Check if any comment contains the Jira key
+            const hasJiraKeyInComments = comments.some(comment => 
+              comment.body && (
+                comment.body.includes(jiraKey) || 
+                comment.body.toLowerCase().includes(jiraKey.toLowerCase())
+              )
+            );
+            
+            if (hasJiraKeyInComments) {
+              totalFound++;
+              this.addDiscoveredPR(discoveredPRs, pr.number, {
+                title: pr.title,
+                confidence: 0.65, // Medium-high confidence for comment references
+                source: 'comment-analysis',
+                url: pr.html_url
+              });
+            }
+          } catch (error) {
+            // Skip this PR if there's an error fetching comments
+            continue;
+          }
+        }
+      }
+      
+      core.info(`  └─ comment-analysis: Found ${totalFound} PRs with comments containing the key`);
+    } catch (error) {
+      core.warning(`  └─ comment-analysis failed: ${error.message}`);
+    }
+  }
+  
+  /**
+   * Search for PRs with labels containing Jira key patterns
+   */
+  async searchPRsByLabels(jiraKey, discoveredPRs, scope) {
+    try {
+      // Extract project code from Jira key (e.g., "PROJ" from "PROJ-123")
+      const projectCode = jiraKey.split('-')[0];
+      if (!projectCode) {
+        core.info(`  └─ label-analysis: No valid project code in key ${jiraKey}`);
+        return;
+      }
+      
+      // Search for PRs with labels containing the project code
+      const searchQuery = `repo:${this.context.repo.owner}/${this.context.repo.repo} is:pr label:${projectCode}*`;
+      
+      const { data: results } = await this.github.rest.search.issuesAndPullRequests({
+        q: searchQuery,
+        per_page: 10
+      });
+      
+      let validMatches = 0;
+      
+      for (const pr of results.items) {
+        if (pr.pull_request) {
+          // Extract Jira ticket from PR labels or check if label explicitly matches Jira key
+          const hasMatchingLabel = pr.labels.some(label => {
+            const labelName = label.name.toUpperCase();
+            return labelName.includes(jiraKey) || labelName.startsWith(projectCode);
+          });
+          
+          if (hasMatchingLabel) {
+            validMatches++;
+            this.addDiscoveredPR(discoveredPRs, pr.number, {
+              title: pr.title,
+              confidence: 0.75, // High confidence for label matches
+              source: 'label-analysis',
+              url: pr.html_url
+            });
+          }
+        }
+      }
+      
+      core.info(`  └─ label-analysis: Found ${validMatches} PRs with matching labels`);
+    } catch (error) {
+      core.warning(`  └─ label-analysis failed: ${error.message}`);
+    }
+  }
 
   /**
    * Add a discovered PR with intelligent deduplication
@@ -295,27 +472,99 @@ class PullRequestClient {
    * Log comprehensive discovery summary
    */
   logDiscoverySummary(discoveredPRs, jiraKeys) {
+    const timeNow = new Date().toISOString();
+    const discoveryScope = process.env.DISCOVERY_SCOPE || 'recent';
+    const strategies = process.env.DISCOVERY_STRATEGIES || 'all';
+    
+    // Group PRs by source for analytics
+    const sourceStats = {};
+    discoveredPRs.forEach(pr => {
+      pr.sources.forEach(source => {
+        sourceStats[source] = sourceStats[source] || 0;
+        sourceStats[source]++;
+      });
+    });
+    
+    // Group PRs by confidence level
+    const confidenceLevels = {
+      high: discoveredPRs.filter(pr => pr.confidence >= 0.8).length,
+      medium: discoveredPRs.filter(pr => pr.confidence >= 0.6 && pr.confidence < 0.8).length,
+      low: discoveredPRs.filter(pr => pr.confidence < 0.6).length
+    };
+    
     core.info(`\n📋 Discovery Summary:`);
     core.info(`🔍 Searched for: ${jiraKeys.join(', ')}`);
     core.info(`✅ Found: ${discoveredPRs.length} unique PRs`);
+    core.info(`🔎 Strategies used: ${strategies === 'all' ? 
+      'All available strategies' : strategies}`);
+    core.info(`🔭 Discovery scope: ${discoveryScope}`);
     
     if (discoveredPRs.length > 0) {
+      // Log discovered PRs
       core.info(`\n📊 Discovered PRs (by confidence):`);
       discoveredPRs.forEach(pr => {
         const confidenceLevel = pr.confidence >= 0.8 ? 'HIGH' : pr.confidence >= 0.6 ? 'MED' : 'LOW';
-        core.info(`  • PR #${pr.number}: ${pr.title.substring(0, 60)}... (${confidenceLevel})`);
+        core.info(`  • PR #${pr.number}: ${pr.title.substring(0, 60)}${pr.title.length > 60 ? '...' : ''} (${confidenceLevel})`);
         core.info(`    Sources: ${pr.sources.join(', ')}, Confidence: ${(pr.confidence * 100).toFixed(0)}%`);
       });
+      
+      // Log source statistics
+      core.info(`\n🔍 Discovery sources breakdown:`);
+      Object.entries(sourceStats).forEach(([source, count]) => {
+        const percentage = (count / discoveredPRs.length * 100).toFixed(1);
+        core.info(`  • ${source}: ${count} PRs (${percentage}%)`);
+      });
+      
+      // Log confidence breakdown
+      core.info(`\n🎯 Confidence breakdown:`);
+      core.info(`  • High confidence (80%+): ${confidenceLevels.high} PRs`);
+      core.info(`  • Medium confidence (60-79%): ${confidenceLevels.medium} PRs`);
+      core.info(`  • Low confidence (<60%): ${confidenceLevels.low} PRs`);
+    } else {
+      core.warning(`⚠️ No PRs found matching the Jira keys: ${jiraKeys.join(', ')}`);
+      core.info(`💡 Suggestions:`);
+      core.info(`  • Try broadening your search scope with DISCOVERY_SCOPE=all`);
+      core.info(`  • Ensure Jira keys are correctly formatted (e.g., PROJ-123)`);
+      core.info(`  • Check if the repository contains references to these Jira keys`);
     }
     
-    // Set environment variables for reporting
-    process.env.DISCOVERY_REPORT = JSON.stringify({
+    // Create detailed discovery report
+    const discoveryReport = {
+      timestamp: timeNow,
       searchedKeys: jiraKeys,
       foundPRs: discoveredPRs.length,
-      highConfidence: discoveredPRs.filter(pr => pr.confidence >= 0.8).length,
-      mediumConfidence: discoveredPRs.filter(pr => pr.confidence >= 0.6 && pr.confidence < 0.8).length,
-      lowConfidence: discoveredPRs.filter(pr => pr.confidence < 0.6).length
-    });
+      scope: discoveryScope,
+      strategies: strategies,
+      confidenceLevels: confidenceLevels,
+      sourceStats: sourceStats,
+      prs: discoveredPRs.map(pr => ({
+        number: pr.number,
+        title: pr.title,
+        confidence: pr.confidence,
+        sources: pr.sources,
+        url: pr.url
+      }))
+    };
+    
+    // Set environment variables for reporting
+    process.env.DISCOVERY_REPORT = JSON.stringify(discoveryReport);
+    
+    // Optionally save to file for record keeping
+    try {
+      const reportsDir = path.join(process.cwd(), 'reports');
+      if (!fs.existsSync(reportsDir)) {
+        fs.mkdirSync(reportsDir, { recursive: true });
+      }
+      
+      const reportPath = path.join(reportsDir, `jira-discovery-${Date.now()}.json`);
+      fs.writeFileSync(reportPath, JSON.stringify(discoveryReport, null, 2));
+      core.info(`\n📄 Detailed discovery report saved to: ${reportPath}`);
+    } catch (error) {
+      // Non-critical, just log the error
+      core.debug(`Could not save discovery report: ${error.message}`);
+    }
+    
+    return discoveryReport;
   }
 
   /**
