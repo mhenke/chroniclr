@@ -3,6 +3,7 @@
 /**
  * Simple AI Document Generator for GitHub Actions
  * GitHub Actions + AI + Hard Data from Sources
+ * SIMPLIFIED VERSION - No complex batching or parsing
  */
 
 const core = require('@actions/core');
@@ -23,7 +24,7 @@ class AIDocumentGenerator {
     this.issuesClient = new IssuesClient();
     this.jiraClient = null;
 
-    core.info(`AI Generator initialized with model: ${this.model}`);
+    core.info(`🚀 AI Generator initialized with model: ${this.model} (SIMPLIFIED VERSION)`);
   }
 
   getJiraClient() {
@@ -283,35 +284,41 @@ class AIDocumentGenerator {
       // Generate each document individually (simple approach)
       const results = [];
       for (const docType of docTypes) {
+        core.info(`📄 Starting generation for: ${docType}`);
         try {
-          core.info(`Generating ${docType} document...`);
-          
           // Load template
           const template = await this.loadTemplate(docType);
+          core.info(`✅ Template loaded for ${docType}`);
           
           // Create AI prompt
           const prompt = this.createAIPrompt(docType, data, template);
+          core.info(`✅ AI prompt created for ${docType} (${prompt.length} chars)`);
           
           // Generate content with AI
           const aiContent = await this.generateCompletion(prompt);
+          core.info(`✅ AI content generated for ${docType} (${aiContent.length} chars)`);
           
           // Save document
           const result = await this.saveDocument(docType, data, aiContent);
           if (result) {
             results.push(result);
+            core.info(`✅ Successfully completed ${docType}`);
+          } else {
+            core.warning(`⚠️  Document generation completed but save failed for ${docType}`);
           }
           
         } catch (error) {
-          core.error(`Failed to generate ${docType}: ${error.message}`);
-          // Continue with other documents
+          core.error(`❌ Failed to generate ${docType}: ${error.message}`);
+          core.info(`🔄 Continuing with remaining document types...`);
+          // Continue with other documents - do not fail the entire process
         }
       }
 
       if (results.length === 0) {
-        throw new Error('No documents were generated successfully');
+        throw new Error('❌ No documents were generated successfully');
       }
 
-      core.info(`✅ Successfully generated ${results.length}/${docTypes.length} documents`);
+      core.info(`🎉 Successfully generated ${results.length}/${docTypes.length} documents`);
       return results;
 
     } catch (error) {
