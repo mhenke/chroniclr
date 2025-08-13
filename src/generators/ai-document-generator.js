@@ -505,6 +505,26 @@ class AIDocumentGenerator {
     }
   }
 
+  async saveDocument(docType, data, content, topic = null) {
+    try {
+      const baseOutputDir = path.join(process.cwd(), 'generated');
+      const sourceFolder = topic || await this.determineSourceFolder(data);
+      const outputDir = path.join(baseOutputDir, sourceFolder);
+      await fs.mkdir(outputDir, { recursive: true });
+
+      const fileName = this.generateFileName(docType, data);
+      const filePath = path.join(outputDir, fileName);
+
+      await fs.writeFile(filePath, content, 'utf8');
+
+      core.info(`✅ Generated document: ${fileName}`);
+      return { filePath, fileName, content };
+    } catch (error) {
+      core.error(`Failed to save ${docType} document: ${error.message}`);
+      return null;
+    }
+  }
+
   parseBundledResponse(aiResponse, docTypes) {
     try {
       // Try to parse as JSON first
