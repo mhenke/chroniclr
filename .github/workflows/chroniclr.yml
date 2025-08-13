@@ -56,9 +56,6 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-        uses: actions/github-script@v7
-        with:
-          script: |
             const discussionNumber = context.payload.discussion?.number || 
                                     context.payload.inputs?.discussion_number;
             const sourceModules = context.payload.inputs?.source || 'discussion';
@@ -112,7 +109,7 @@ jobs:
                 }
               }
             `;
-            
+
             let comments = [];
             try {
               const commentsResult = await github.graphql(commentsQuery, {
@@ -163,10 +160,6 @@ jobs:
           PR_NUMBERS: ${{ github.event.inputs.pr_numbers }}
           JIRA_KEYS: ${{ github.event.inputs.jira_keys }}
           ISSUE_NUMBERS: ${{ github.event.inputs.issue_numbers }}
-          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
-          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
-          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
-          JIRA_PROJECT: ${{ secrets.JIRA_PROJECT }}
         run: npm run generate-document
 
       - name: Ensure labels exist
@@ -217,7 +210,7 @@ jobs:
             **Author:** system
             **Data Sources:** ${{ github.event.inputs.source || 'discussion' }}
             **Comments Processed:** 0
-            
+
             ### Changes
             - Generated comprehensive documentation using AI (GitHub Models GPT-4o)
             - Applied appropriate templates for document types  

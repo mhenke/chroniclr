@@ -117,13 +117,23 @@ Discussion labels determine document types via `chroniclr.config.json`:
 - `release` → Changelog
 - `planning` → Meeting notes
 
-### Jira Integration
+### Jira Integration (Optional)
 
-Configure Jira settings in `.env`:
+To enable Jira integration, add the following secrets to your GitHub repository (Settings → Secrets and variables → Actions):
 
-- Set `JIRA_BASE_URL`, `JIRA_USER_EMAIL`, `JIRA_API_TOKEN`
-- Update `JIRA_PROJECT` for your project key
-- System will automatically discover related Jira items
+- `JIRA_BASE_URL` (e.g. `https://yourcompany.atlassian.net`)
+- `JIRA_USER_EMAIL` (e.g. `bot@yourcompany.com`)
+- `JIRA_API_TOKEN` (your Jira API token)
+- `JIRA_PROJECT` (your Jira project key, e.g. `PROJ`)
+
+If these secrets are not set, Chroniclr will skip Jira integration automatically. No changes to the workflow are needed—just add or remove the secrets as needed.
+
+**What Jira integration enables:**
+
+- Sprint reports, epic summaries, and project dashboards from Jira
+- Cross-referenced documentation with GitHub issues, PRs, and discussions
+
+**Note:** You do not need a `.env` file for production; all configuration should be done via GitHub Actions secrets.
 
 ## Communication Types
 
