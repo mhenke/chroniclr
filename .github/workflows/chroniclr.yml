@@ -7,57 +7,24 @@ on:
   workflow_dispatch:
     inputs:
       discussion_number:
-        description: 'Discussion number to process (required only if source includes discussion)'
+        description: 'Discussion number to process'
         required: false
         type: string
       source:
-        description: 'Data sources for documentation (comma-separated: discussion,jira,pr,issues)'
+        description: 'Data sources (comma-separated: discussion,issues,pr,jira)'
         required: false
         type: string
         default: 'discussion'
       pr_numbers:
-        description: 'Pull request numbers to process (comma-separated, e.g., "123,456")'
+        description: 'Pull request numbers (comma-separated, e.g., "123,456")'
         required: false
         type: string
       jira_keys:
-        description: 'Jira issue keys to find related PRs (comma-separated, e.g., "PROJ-123,PROJ-456")'
+        description: 'Jira issue keys (comma-separated, e.g., "PROJ-123,PROJ-456")'
         required: false
         type: string
       issue_numbers:
-        description: 'GitHub issue numbers to include (comma-separated, e.g., "123,456")'
-        required: false
-        type: string
-      discovery_keywords:
-        description: 'Keywords for intelligent discovery across all sources (comma-separated)'
-        required: false
-        type: string
-      discovery_scope:
-        description: 'Discovery scope for automated searches'
-        required: false
-        type: choice
-        options:
-          - recent
-          - sprint
-          - milestone
-          - all
-        default: 'recent'
-      max_discoveries:
-        description: 'Maximum number of items to discover automatically (default: 20)'
-        required: false
-        type: string
-        default: '20'
-      batch_size:
-        description: 'API batch size for performance optimization (default: 10)'
-        required: false
-        type: string
-        default: '10'
-      dry_run:
-        description: 'Preview what would be processed without generating docs'
-        required: false
-        type: boolean
-        default: false
-      config_file:
-        description: 'Path to configuration file (YAML or JSON) - overrides individual parameters'
+        description: 'GitHub issue numbers (comma-separated, e.g., "123,456")'
         required: false
         type: string
 
@@ -87,64 +54,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Load Configuration
-        id: load-config
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const { ConfigLoader } = require('./src/utils/config-loader.js');
-            const configLoader = new ConfigLoader();
-            
-            let config;
-            const configFile = context.payload.inputs?.config_file;
-            
-            if (configFile) {
-              core.info(`📄 Loading configuration from file: ${configFile}`);
-              try {
-                config = await configLoader.loadConfiguration(configFile);
-                core.info('✅ Configuration loaded successfully from file');
-              } catch (error) {
-                core.error(`❌ Failed to load config file: ${error.message}`);
-                core.info('📄 Falling back to individual parameters');
-                config = configLoader.loadFromEnvironment();
-              }
-            } else {
-              core.info('📄 Loading configuration from workflow parameters');
-              config = configLoader.loadFromEnvironment();
-            }
-            
-            // Convert config to environment variables and set outputs
-            const envVars = configLoader.configToEnvVars(config);
-            
-            // Set environment variables for subsequent steps
-            Object.entries(envVars).forEach(([key, value]) => {
-              core.exportVariable(key, value);
-              core.info(`🔧 Set ${key}=${value}`);
-            });
-            
-            // Set outputs for reporting
-            core.setOutput('sources', config.sources.join(','));
-            core.setOutput('discovery_scope', config.discovery.scope);
-            core.setOutput('max_discoveries', config.discovery.maxDiscoveries);
-            core.setOutput('dry_run', config.options.dryRun);
-            core.setOutput('config_loaded_from', configFile ? 'file' : 'parameters');
-            
-            // Log configuration summary
-            core.info('\n📊 Final Configuration:');
-            core.info(`  Sources: ${config.sources.join(', ')}`);
-            core.info(`  Discovery scope: ${config.discovery.scope}`);
-            core.info(`  Max discoveries: ${config.discovery.maxDiscoveries}`);
-            core.info(`  Dry run: ${config.options.dryRun}`);
-            if (config.discussionNumber) {
-              core.info(`  Discussion: #${config.discussionNumber}`);
-            }
-            if (config.prNumbers && config.prNumbers.length > 0) {
-              core.info(`  Manual PRs: ${config.prNumbers.join(', ')}`);
-            }
-            if (config.jiraKeys && config.jiraKeys.length > 0) {
-              core.info(`  Jira keys: ${config.jiraKeys.join(', ')}`);
-            }
 
       - name: Get discussion details
         id: discussion
@@ -259,520 +168,31 @@ jobs:
             echo "document_types=summary" >> $GITHUB_OUTPUT
           fi
 
-      - name: Initialize Output Session
-        id: init-output
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const { OutputManager } = require('./src/utils/output-manager.js');
-            const { github } = require('@actions/github');
-            
-            const outputManager = new OutputManager({
-              github: github.getOctokit(process.env.GITHUB_TOKEN),
-              enableAIGeneration: true
-            });
-            
-            // Prepare context for folder naming
-            const context = {
-              discussionNumber: process.env.DISCUSSION_NUMBER,
-              discussionTitle: process.env.DISCUSSION_TITLE,
-              discussionAuthor: process.env.DISCUSSION_AUTHOR,
-              prNumbers: process.env.PR_NUMBERS,
-              jiraKeys: process.env.JIRA_KEYS,
-              sources: (process.env.SOURCE_MODULES || '').split(',').map(s => s.trim()).filter(s => s.length > 0)
-            };
-            
-            core.info('🚀 Initializing intelligent output session...');
-            const session = await outputManager.initializeSession(context);
-            
-            // Set outputs for subsequent steps
-            core.setOutput('output_dir', session.outputDir);
-            core.setOutput('folder_name', session.folderName);
-            core.setOutput('session_id', session.sessionId);
-            
-            // Export for use in other steps
-            core.exportVariable('CHRONICLR_OUTPUT_DIR', session.outputDir);
-            core.exportVariable('CHRONICLR_SESSION_ID', session.sessionId);
-            core.exportVariable('CHRONICLR_FOLDER_NAME', session.folderName);
-
-      - name: Enhanced Discovery Phase
-        id: enhanced-discovery
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const { DiscoveryEngine } = require('./src/utils/discovery-engine.js');
-            const { github } = require('@actions/github');
-            
-            core.info('🔍 Starting enhanced discovery across all sources...');
-            
-            const discoveryEngine = new DiscoveryEngine(github.getOctokit(process.env.GITHUB_TOKEN), {
-              context: {
-                repo: {
-                  owner: context.repo.owner,
-                  repo: context.repo.repo
-                }
-              }
-            });
-            
-            // Prepare seed data for discovery
-            const seedData = {
-              discussionNumber: process.env.DISCUSSION_NUMBER,
-              discussionTitle: process.env.DISCUSSION_TITLE,
-              discussionAuthor: process.env.DISCUSSION_AUTHOR,
-              prNumbers: process.env.PR_NUMBERS,
-              jiraKeys: process.env.JIRA_KEYS,
-              issueNumbers: process.env.ISSUE_NUMBERS,
-              keywords: process.env.DISCOVERY_KEYWORDS
-            };
-            
-            // Only run discovery if we have seed data
-            const hasSeedData = Object.values(seedData).some(value => value && value.length > 0);
-            
-            if (hasSeedData) {
-              try {
-                const discoveries = await discoveryEngine.discoverRelatedContent(seedData);
-                
-                // Set environment variables for use in document generation
-                if (discoveries.discussions.length > 0) {
-                  const discussionNumbers = discoveries.discussions.map(d => d.number).join(',');
-                  core.exportVariable('DISCOVERED_DISCUSSIONS', discussionNumbers);
-                  core.info(`📢 Discovered discussions: ${discussionNumbers}`);
-                }
-                
-                if (discoveries.issues.length > 0) {
-                  const issueNumbers = discoveries.issues.map(i => i.number).join(',');
-                  core.exportVariable('DISCOVERED_ISSUES', issueNumbers);
-                  core.info(`🐛 Discovered issues: ${issueNumbers}`);
-                }
-                
-                if (discoveries.pullRequests.length > 0) {
-                  const prNumbers = discoveries.pullRequests.map(p => p.number).join(',');
-                  core.exportVariable('DISCOVERED_PRS', prNumbers);
-                  core.info(`🔀 Discovered PRs: ${prNumbers}`);
-                }
-                
-                if (discoveries.jiraIssues.length > 0) {
-                  const jiraKeys = discoveries.jiraIssues.map(j => j.key).join(',');
-                  core.exportVariable('DISCOVERED_JIRA', jiraKeys);
-                  core.info(`🎫 Discovered Jira issues: ${jiraKeys}`);
-                }
-                
-                // Set discovery summary for reporting
-                core.setOutput('discovery_summary', JSON.stringify(discoveries.summary));
-                core.setOutput('total_discovered', discoveries.summary.totalItems);
-                core.setOutput('correlations_found', discoveries.correlations.length);
-                
-                core.info(`✅ Discovery complete: ${discoveries.summary.totalItems} items found, ${discoveries.correlations.length} correlations`);
-                
-              } catch (error) {
-                core.warning(`Discovery phase failed: ${error.message}`);
-                core.setOutput('discovery_summary', JSON.stringify({ error: error.message }));
-                core.setOutput('total_discovered', 0);
-                core.setOutput('correlations_found', 0);
-              }
-            } else {
-              core.info('⏭️ No seed data provided - skipping enhanced discovery');
-              core.setOutput('discovery_summary', JSON.stringify({ skipped: 'No seed data' }));
-              core.setOutput('total_discovered', 0);
-              core.setOutput('correlations_found', 0);
-            }
-
-      - name: Process modules based on runtime parameters
-        id: process-modules
+      - name: Generate documentation
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DOC_TYPES: ${{ steps.doc-types.outputs.document_types }}
+          DOC_TYPE: ${{ steps.doc-types.outputs.document_types }}
+          # Discussion data
           DISCUSSION_NUMBER: ${{ steps.discussion.outputs.number }}
           DISCUSSION_TITLE: ${{ steps.discussion.outputs.title }}
           DISCUSSION_BODY: ${{ steps.discussion.outputs.full_content }}
           DISCUSSION_AUTHOR: ${{ steps.discussion.outputs.author }}
           DISCUSSION_URL: ${{ steps.discussion.outputs.url }}
           COMMENTS_COUNT: ${{ steps.discussion.outputs.comments_count }}
+          # Source configuration
+          SOURCE_MODULES: ${{ github.event.inputs.source || 'discussion' }}
+          PR_NUMBERS: ${{ github.event.inputs.pr_numbers }}
+          JIRA_KEYS: ${{ github.event.inputs.jira_keys }}
+          ISSUE_NUMBERS: ${{ github.event.inputs.issue_numbers }}
           # Jira integration (optional)
           JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
           JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
           JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
-          # Runtime data source selection
-          SOURCE_MODULES: ${{ github.event.inputs.source || 'discussion' }}
-          # PR processing parameters
-          PR_NUMBERS: ${{ github.event.inputs.pr_numbers }}
-          JIRA_KEYS: ${{ github.event.inputs.jira_keys }}
-          # Enhanced discovery parameters
-          DISCOVERY_SCOPE: ${{ github.event.inputs.discovery_scope || 'recent' }}
-          MAX_DISCOVERIES: ${{ github.event.inputs.max_discoveries || '20' }}
-          BATCH_SIZE: ${{ github.event.inputs.batch_size || '10' }}
-          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
-        run: |
-          echo "=== Chroniclr Documentation Generation ==="
-          echo "Data sources: $SOURCE_MODULES"
-          if [ -n "$DISCUSSION_NUMBER" ]; then
-            echo "Discussion: #$DISCUSSION_NUMBER with $COMMENTS_COUNT comments"
-          else
-            echo "Discussion: None (using alternative data sources)"
-          fi
-          
-          # Parse requested data sources
-          IFS=',' read -ra MODULES <<< "$SOURCE_MODULES"
-          
-          # Initialize tracking
-          GENERATED_DOCS=""
-          PROCESSED_MODULES=""
-          
-          for module in "${MODULES[@]}"; do
-            module=$(echo "$module" | tr -d ' ')  # Remove whitespace
-            echo ""
-            echo "🔄 Processing data source: $module"
-            
-            case "$module" in
-              "discussion")
-                echo "✅ Discussion processing enabled"
-                PROCESSED_MODULES="$PROCESSED_MODULES discussion"
-                # Generate discussion-based documents
-                for doc_type in $DOC_TYPES; do
-                  echo "Generating $doc_type from discussion content..."
-                  DOC_TYPE=$doc_type npm run generate-document
-                  GENERATED_DOCS="$GENERATED_DOCS $doc_type"
-                done
-                ;;
-                
-              "jira")
-                if [ -n "$JIRA_BASE_URL" ] && [ -n "$JIRA_API_TOKEN" ]; then
-                  echo "✅ Jira integration enabled - generating project reports"
-                  PROCESSED_MODULES="$PROCESSED_MODULES jira"
-                  # Generate Jira-specific documents
-                  DOC_TYPE=sprint-report npm run generate-document
-                  DOC_TYPE=epic-summary npm run generate-document
-                  DOC_TYPE=project-dashboard npm run generate-document
-                  GENERATED_DOCS="$GENERATED_DOCS sprint-report epic-summary project-dashboard"
-                else
-                  echo "❌ Jira module requested but credentials not configured"
-                fi
-                ;;
-                
-              "pr")
-                echo "🔍 Pull Request module requested"
-                echo "  └─ Manual PRs: ${PR_NUMBERS:-none}"
-                echo "  └─ Jira keys for discovery: ${JIRA_KEYS:-none}"
-                echo "  └─ Discovery scope: $DISCOVERY_SCOPE"
-                echo "  └─ Max discoveries: $MAX_DISCOVERIES"
-                echo "  └─ Dry run: $DRY_RUN"
-                
-                if [ -n "$PR_NUMBERS" ] || [ -n "$JIRA_KEYS" ]; then
-                  echo ""
-                  echo "📋 Input Validation Phase"
-                  
-                  # Validate PR numbers format
-                  if [ -n "$PR_NUMBERS" ]; then
-                    echo "🔍 Validating manual PR numbers..."
-                    VALID_PRS=""
-                    INVALID_PRS=""
-                    
-                    IFS=',' read -ra PR_ARRAY <<< "$PR_NUMBERS"
-                    for pr in "${PR_ARRAY[@]}"; do
-                      pr=$(echo "$pr" | tr -d ' ')  # Remove whitespace
-                      if [[ "$pr" =~ ^[0-9]+$ ]]; then
-                        # Check if PR exists (this would need a GitHub API call in real implementation)
-                        VALID_PRS="$VALID_PRS$pr,"
-                        echo "  ✅ PR #$pr: Valid format"
-                      else
-                        INVALID_PRS="$INVALID_PRS$pr,"
-                        echo "  ❌ PR #$pr: Invalid format (not a number)"
-                      fi
-                    done
-                    
-                    if [ -n "$INVALID_PRS" ]; then
-                      echo "⚠️ Warning: Invalid PR numbers will be skipped: ${INVALID_PRS%,}"
-                    fi
-                    
-                    # Clean up valid PRs list
-                    VALID_PRS="${VALID_PRS%,}"
-                    if [ -z "$VALID_PRS" ]; then
-                      echo "❌ No valid PR numbers provided"
-                    fi
-                  fi
-                  
-                  # Validate Jira keys format  
-                  if [ -n "$JIRA_KEYS" ]; then
-                    echo "🔍 Validating Jira keys..."
-                    VALID_JIRA=""
-                    INVALID_JIRA=""
-                    
-                    IFS=',' read -ra JIRA_ARRAY <<< "$JIRA_KEYS"
-                    for key in "${JIRA_ARRAY[@]}"; do
-                      key=$(echo "$key" | tr -d ' ')  # Remove whitespace
-                      # Basic Jira key pattern validation (PROJECT-NUMBER)
-                      if [[ "$key" =~ ^[A-Za-z]+-[0-9]+$ ]]; then
-                        VALID_JIRA="$VALID_JIRA$key,"
-                        echo "  ✅ Jira key $key: Valid format"
-                      else
-                        INVALID_JIRA="$INVALID_JIRA$key,"
-                        echo "  ❌ Jira key $key: Invalid format (expected PROJECT-123)"
-                      fi
-                    done
-                    
-                    if [ -n "$INVALID_JIRA" ]; then
-                      echo "⚠️ Warning: Invalid Jira keys will be skipped: ${INVALID_JIRA%,}"
-                    fi
-                    
-                    # Clean up valid Jira list
-                    VALID_JIRA="${VALID_JIRA%,}"
-                  fi
-                  
-                  # Proceed only if we have valid inputs
-                  if [ -n "$VALID_PRS" ] || [ -n "$VALID_JIRA" ]; then
-                    echo ""
-                    echo "✅ Pull Request analysis enabled - generating release documentation"
-                    PROCESSED_MODULES="$PROCESSED_MODULES pr"
-                    
-                    # Build PR list from multiple sources
-                    PR_LIST=""
-                    
-                    if [ -n "$VALID_PRS" ]; then
-                      echo "📝 Processing validated PRs: $VALID_PRS"
-                      PR_LIST="$VALID_PRS"
-                    fi
-                    
-                    if [ -n "$VALID_JIRA" ]; then
-                      echo "🔍 Discovering PRs for validated Jira keys: $VALID_JIRA"
-                      if [ -n "$PR_LIST" ]; then
-                        # Combine manual PRs with Jira-discovered PRs
-                        PR_LIST="$PR_LIST,from-jira:$VALID_JIRA"
-                      else
-                        # Only Jira discovery
-                        PR_LIST="from-jira:$VALID_JIRA"
-                      fi
-                    fi
-                    
-                    if [ "$DRY_RUN" = "true" ]; then
-                      echo ""
-                      echo "🏃‍♂️ DRY RUN MODE - Preview only, no documents will be generated"
-                      echo "Would process PRs with list: $PR_LIST"
-                      echo "Would generate: release-notes, change-impact-report"
-                    else
-                      echo ""
-                      echo "🚀 Generating PR-based documentation..."
-                      # Generate PR-based documents with PR list
-                      PR_LIST="$PR_LIST" DOC_TYPE=release-notes npm run generate-document
-                      if [ $? -eq 0 ]; then
-                        echo "  ✅ release-notes generated successfully"
-                        GENERATED_DOCS="$GENERATED_DOCS release-notes"
-                      else
-                        echo "  ❌ release-notes generation failed"
-                      fi
-                      
-                      PR_LIST="$PR_LIST" DOC_TYPE=change-impact-report npm run generate-document
-                      if [ $? -eq 0 ]; then
-                        echo "  ✅ change-impact-report generated successfully"
-                        GENERATED_DOCS="$GENERATED_DOCS change-impact-report"
-                      else
-                        echo "  ❌ change-impact-report generation failed"
-                      fi
-                    fi
-                  else
-                    echo ""
-                    echo "❌ PR module validation failed"
-                    echo "No valid PR numbers or Jira keys provided after validation"
-                    echo ""
-                    echo "📋 Usage Examples:"
-                    echo "  Valid PR numbers: pr_numbers='123,456,789'"
-                    echo "  Valid Jira keys: jira_keys='PROJ-123,FEAT-456'"
-                    echo "  Combined: pr_numbers='123' jira_keys='PROJ-456'"
-                  fi
-                else
-                  echo "❌ PR module requested but no input provided"
-                  echo ""
-                  echo "📋 Required Parameters:"
-                  echo "  • pr_numbers: Specific PR numbers to analyze"
-                  echo "  • jira_keys: Jira keys to find related PRs"
-                  echo "  • At least one parameter is required"
-                  echo ""
-                  echo "🎯 Examples:"
-                  echo "  gh workflow run chroniclr.yml -f source=pr -f pr_numbers='123,456'"
-                  echo "  gh workflow run chroniclr.yml -f source=pr -f jira_keys='PROJ-123'"
-                  echo "  gh workflow run chroniclr.yml -f source=pr -f pr_numbers='123' -f jira_keys='PROJ-456'"
-                fi
-                ;;
-                
-              "issues")
-                echo "🐛 GitHub Issues processing enabled"
-                
-                # Check if we have issue numbers (manual or discovered)
-                ISSUES_TO_PROCESS="$ISSUE_NUMBERS"
-                if [ -n "$DISCOVERED_ISSUES" ]; then
-                  if [ -n "$ISSUES_TO_PROCESS" ]; then
-                    ISSUES_TO_PROCESS="$ISSUES_TO_PROCESS,$DISCOVERED_ISSUES"
-                  else
-                    ISSUES_TO_PROCESS="$DISCOVERED_ISSUES"
-                  fi
-                fi
-                
-                if [ -n "$ISSUES_TO_PROCESS" ]; then
-                  echo "📋 Processing issues: $ISSUES_TO_PROCESS"
-                  PROCESSED_MODULES="$PROCESSED_MODULES issues"
-                  
-                  if [ "$DRY_RUN" = "true" ]; then
-                    echo "🏃‍♂️ DRY RUN MODE - Would process issues: $ISSUES_TO_PROCESS"
-                  else
-                    echo "🚀 Generating issues-based documentation..."
-                    # Generate issue analysis documents
-                    ISSUE_NUMBERS="$ISSUES_TO_PROCESS" DOC_TYPE=issue-analysis npm run generate-document
-                    if [ $? -eq 0 ]; then
-                      echo "  ✅ issue-analysis generated successfully"
-                      GENERATED_DOCS="$GENERATED_DOCS issue-analysis"
-                    else
-                      echo "  ❌ issue-analysis generation failed"
-                    fi
-                    
-                    # Generate issue correlation report if we have multiple sources
-                    if [[ "$SOURCE_MODULES" == *","* ]]; then
-                      ISSUE_NUMBERS="$ISSUES_TO_PROCESS" DOC_TYPE=issue-correlation npm run generate-document
-                      if [ $? -eq 0 ]; then
-                        echo "  ✅ issue-correlation generated successfully"
-                        GENERATED_DOCS="$GENERATED_DOCS issue-correlation"
-                      else
-                        echo "  ❌ issue-correlation generation failed"
-                      fi
-                    fi
-                  fi
-                else
-                  echo "❌ Issues module requested but no issue numbers provided"
-                  echo ""
-                  echo "📋 Required Parameters:"
-                  echo "  • issue_numbers: Specific GitHub issue numbers to analyze"
-                  echo "  • discovery_keywords: Keywords to discover related issues"
-                  echo ""
-                  echo "🎯 Examples:"
-                  echo "  gh workflow run chroniclr.yml -f source=issues -f issue_numbers='123,456'"
-                  echo "  gh workflow run chroniclr.yml -f source=issues -f discovery_keywords='bug,security'"
-                fi
-                ;;
-                
-                
-              *)
-                echo "❌ Unknown module: $module"
-                ;;
-            esac
-          done
-          
-          # Generate cross-platform correlation if multiple sources are used
-          if [ $(echo "$PROCESSED_MODULES" | wc -w) -gt 1 ]; then
-            echo ""
-            echo "🔄 Generating cross-platform correlation report (multi-source intelligence)"
-            DOC_TYPE=feature-completion npm run generate-document
-            GENERATED_DOCS="$GENERATED_DOCS feature-completion"
-          fi
-          
-          echo ""
-          echo "=== Processing Summary ==="
-          echo "Data sources used: $PROCESSED_MODULES"
-          echo "Generated documents: $GENERATED_DOCS"
-          echo "AI processing: Enabled for all document generation"
-          echo "Cross-platform correlation: $([ $(echo "$PROCESSED_MODULES" | wc -w) -gt 1 ] && echo "Enabled" || echo "Not applicable (single source)")"
-          
-          # Generate comprehensive processing report
-          echo ""
-          echo "📊 Final Processing Report"
-          echo "=========================="
-          echo "✅ Modules processed: $PROCESSED_MODULES"
-          echo "📄 Documents generated: $GENERATED_DOCS"
-          echo "🔍 Discovery scope: $DISCOVERY_SCOPE"
-          echo "🎯 Max discoveries: $MAX_DISCOVERIES"
-          echo "🏃‍♂️ Dry run mode: $DRY_RUN"
-          
-          if [ -n "$PR_NUMBERS" ]; then
-            echo "📝 Manual PRs requested: $PR_NUMBERS"
-          fi
-          if [ -n "$JIRA_KEYS" ]; then
-            echo "🎫 Jira keys searched: $JIRA_KEYS"
-          fi
-          
-          # Check if discovery report exists from PR client
-          if [ -n "$DISCOVERY_REPORT" ]; then
-            echo ""
-            echo "🔍 Discovery Results:"
-            echo "$DISCOVERY_REPORT" | jq -r '
-              "  • Searched Jira keys: " + (.searchedKeys | join(", ")) +
-              "\n  • PRs discovered: " + (.foundPRs | tostring) +
-              "\n  • High confidence: " + (.highConfidence | tostring) +
-              "\n  • Medium confidence: " + (.mediumConfidence | tostring) +  
-              "\n  • Low confidence: " + (.lowConfidence | tostring)
-            ' 2>/dev/null || echo "  Discovery report parsing failed"
-          fi
-          
-          echo ""
-          echo "🎯 Recommendations:"
-          if [ "$DRY_RUN" = "true" ]; then
-            echo "  • Run without --dry-run to generate actual documentation"
-          fi
-          if [ -z "$PROCESSED_MODULES" ]; then
-            echo "  • No modules were successfully processed - check inputs and credentials"
-          fi
-          if [ -n "$PROCESSED_MODULES" ] && [ -z "$GENERATED_DOCS" ]; then
-            echo "  • Modules processed but no documents generated - check for errors above"
-          fi
-          
-          # Set outputs for next steps
-          echo "processed_modules=$PROCESSED_MODULES" >> $GITHUB_OUTPUT
-          echo "generated_docs=$GENERATED_DOCS" >> $GITHUB_OUTPUT
-          echo "discovery_scope=$DISCOVERY_SCOPE" >> $GITHUB_OUTPUT
-          echo "dry_run=$DRY_RUN" >> $GITHUB_OUTPUT
-
-      - name: Finalize Output Session
-        id: finalize-output
-        if: success()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const { OutputManager } = require('./src/utils/output-manager.js');
-            
-            // Create output manager instance
-            const outputManager = new OutputManager();
-            
-            // Reconstruct session from environment variables
-            const sessionOutputDir = process.env.CHRONICLR_OUTPUT_DIR;
-            const sessionId = process.env.CHRONICLR_SESSION_ID;
-            const folderName = process.env.CHRONICLR_FOLDER_NAME;
-            
-            if (sessionOutputDir && sessionId) {
-              try {
-                // Load session metadata
-                const fs = require('fs');
-                const path = require('path');
-                const metadataPath = path.join(sessionOutputDir, '.chroniclr-session.json');
-                
-                if (fs.existsSync(metadataPath)) {
-                  const sessionData = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
-                  outputManager.currentSession = sessionData;
-                  
-                  // Finalize session with summary
-                  const summary = {
-                    processedModules: process.env.PROCESSED_MODULES || '',
-                    generatedDocs: process.env.GENERATED_DOCS || '',
-                    discoveryScope: process.env.DISCOVERY_SCOPE || '',
-                    dryRun: process.env.DRY_RUN === 'true',
-                    workflowSuccess: true
-                  };
-                  
-                  const finalSession = await outputManager.finalizeSession(summary);
-                  
-                  core.info('🎉 Output session finalized successfully!');
-                  core.setOutput('output_folder', finalSession.folderName);
-                  core.setOutput('total_files', finalSession.summary.totalFiles);
-                  core.setOutput('session_summary', JSON.stringify(finalSession.summary));
-                  
-                } else {
-                  core.warning('Session metadata not found - cannot finalize properly');
-                }
-              } catch (error) {
-                core.error(`Failed to finalize output session: ${error.message}`);
-              }
-            } else {
-              core.info('No active output session to finalize');
-            }
+          JIRA_PROJECT: ${{ secrets.JIRA_PROJECT }}
+        run: npm run generate-document
 
       - name: Create GitHub issues for action items
-        id: action-items
-        if: success() && contains(steps.process-modules.outputs.processed_modules, 'issues')
+        if: success()
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DISCUSSION_NUMBER: ${{ steps.discussion.outputs.number }}
@@ -800,15 +220,6 @@ jobs:
                   repo: context.repo.repo,
                   name: l.name,
                 });
-                await github.rest.issues.updateLabel({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  name: l.name,
-                  new_name: l.name,
-                  color: l.color,
-                  description: l.description,
-                });
-                core.info(`Updated label: ${l.name}`);
               } catch (e) {
                 if (e.status === 404) {
                   await github.rest.issues.createLabel({
@@ -819,71 +230,39 @@ jobs:
                     description: l.description,
                   });
                   core.info(`Created label: ${l.name}`);
-                } else {
-                  throw e;
                 }
               }
             }
 
       - name: Create Pull Request
-        id: cpr
-        continue-on-error: true
         if: success()
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: '📚 Generate documentation for discussion #${{ steps.discussion.outputs.number }}'
-          title: '📚 Update documentation from discussion #${{ steps.discussion.outputs.number }}'
+          commit-message: '📚 Generate documentation via Chroniclr'
+          title: '📚 Update documentation via Chroniclr'
           body: |
             ## Automated Documentation Update
 
-            This PR contains documentation automatically generated from GitHub discussion #${{ steps.discussion.outputs.number }}.
+            This PR contains documentation automatically generated by Chroniclr.
 
-            **Discussion:** [${{ steps.discussion.outputs.title }}](${{ steps.discussion.outputs.url }})
-            **Author:** @${{ steps.discussion.outputs.author }}
-            **Data Sources:** ${{ steps.process-modules.outputs.processed_modules }}
-            **Generated Documents:** ${{ steps.process-modules.outputs.generated_docs }}
-            **Comments Processed:** ${{ steps.discussion.outputs.comments_count }}
-            **Action Items Created:** ${{ steps.action-items.outputs.issues_created || 0 }} GitHub issues
+            **Discussion:** [${{ steps.discussion.outputs.title || 'Multi-source generation' }}](${{ steps.discussion.outputs.url }})
+            **Author:** @${{ steps.discussion.outputs.author || 'system' }}
+            **Data Sources:** ${{ github.event.inputs.source || 'discussion' }}
+            **Comments Processed:** ${{ steps.discussion.outputs.comments_count || 0 }}
             
-            ### 📁 Intelligent Output Organization
-            **Output Folder:** `${{ steps.finalize-output.outputs.output_folder || steps.init-output.outputs.folder_name }}`  
-            **Total Files Generated:** ${{ steps.finalize-output.outputs.total_files || 'Processing...' }}  
-            **Session ID:** `${{ steps.init-output.outputs.session_id }}`
-
             ### Changes
-            - Generated comprehensive documentation based on full discussion thread
+            - Generated comprehensive documentation using AI (GitHub Models GPT-4o)
             - Applied appropriate templates for document types  
             - Extracted key information, decisions, and stakeholder input
-            - Automatically created GitHub issues for action items with assignments
-
-            ### Action Items Processed
-            ${{ steps.action-items.outputs.message || 'No action items found in discussion' }}
+            - Automatically created GitHub issues for action items
+            - AI-organized output in topic-based folders
 
             ---
             🤖 *This PR was automatically created by Chroniclr*
-          branch: docs/chroniclr-${{ steps.discussion.outputs.number }}
+          branch: docs/chroniclr-${{ github.run_number }}
           delete-branch: true
           labels: |
             documentation
             automated
             chroniclr
-
-      - name: Summarize PR creation
-        if: always()
-        run: |
-          if [ -n "${{ steps.cpr.outputs.pull-request-url }}" ]; then
-            {
-              echo "PR created or updated successfully."
-              echo
-              echo "Branch: docs/chroniclr-${{ steps.discussion.outputs.number }}"
-              echo "URL: ${{ steps.cpr.outputs.pull-request-url }}"
-            } >> "$GITHUB_STEP_SUMMARY"
-          else
-            {
-              echo "GitHub Actions could not create a PR (policy or permissions)."
-              echo
-              echo "Create it manually:"
-              echo "https://github.com/${{ github.repository }}/pull/new/docs/chroniclr-${{ steps.discussion.outputs.number }}"
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
