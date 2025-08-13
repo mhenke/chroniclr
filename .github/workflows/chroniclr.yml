@@ -160,7 +160,7 @@ jobs:
           PR_NUMBERS: ${{ github.event.inputs.pr_numbers }}
           JIRA_KEYS: ${{ github.event.inputs.jira_keys }}
           ISSUE_NUMBERS: ${{ github.event.inputs.issue_numbers }}
-        run: npm run generate-document
+    run: npm run generate-document
 
       - name: Ensure labels exist
         if: success()
