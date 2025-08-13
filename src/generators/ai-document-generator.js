@@ -175,7 +175,7 @@ class AIDocumentGenerator {
         body: process.env.DISCUSSION_BODY || '',
         author: process.env.DISCUSSION_AUTHOR || 'unknown',
         url: process.env.DISCUSSION_URL || '',
-        commentsCount: parseInt(process.env.COMMENTS_COUNT) || 0,
+        commentsCount: parseInt(process.env.DISCUSSION_COMMENTS_COUNT) || 0,
       };
       core.info(
         `✅ Collected discussion data: #${collectedData.discussion.number}`
@@ -774,6 +774,7 @@ Bad examples: "database", "mobile", "security" (too generic)`;
 
   replaceTemplateVariables(content, data) {
     const currentDate = new Date().toISOString().split('T')[0];
+    const currentDateTime = new Date().toISOString();
 
     // Replace discussion number if available
     if (data.discussion && data.discussion.number) {
@@ -797,12 +798,133 @@ Bad examples: "database", "mobile", "security" (too generic)`;
       content = content.replace(/from discussion #\d+/g, sourceDescription);
     }
 
-    // Replace any remaining basic variables that might appear in AI content
+    // Replace basic date/time variables
     content = content.replace(/{date}/g, currentDate);
+    content = content.replace(/{lastUpdated}/g, currentDate);
+    content = content.replace(/{releaseDate}/g, currentDate);
+
+    // Replace status and progress variables
+    content = content.replace(/{status}/g, 'Active');
+    content = content.replace(/{progress}/g, 'In Progress');
+
+    // Replace URL variables
+    if (data.discussion) {
+      content = content.replace(/{discussionUrl}/g, data.discussion.url || '#');
+    } else {
+      content = content.replace(/{discussionUrl}/g, '#');
+    }
+
+    // Repository URL - construct from GitHub context
+    const repoUrl = `https://github.com/${
+      process.env.GITHUB_REPOSITORY || 'owner/repo'
+    }`;
+    content = content.replace(/{repositoryUrl}/g, repoUrl);
+
+    // Replace version and release variables
+    content = content.replace(/{version}/g, '1.0.0');
+    content = content.replace(
+      /{releaseManager}/g,
+      data.discussion?.author || 'System'
+    );
+
+    // Replace count variables
+    content = content.replace(/{prCount}/g, data.prs?.length || 0);
+    content = content.replace(
+      /{contributorCount}/g,
+      this.getUniqueContributors(data).length
+    );
+
+    // Replace content variables with basic fallbacks
+    content = content.replace(
+      /{releaseOverview}/g,
+      'Overview will be generated based on the provided content.'
+    );
+    content = content.replace(
+      /{highImpactChanges}/g,
+      'High impact changes will be identified from the source materials.'
+    );
+    content = content.replace(
+      /{mergedPullRequests}/g,
+      this.generatePRList(data.prs)
+    );
+    content = content.replace(
+      /{contributorRecognition}/g,
+      this.generateContributorList(data)
+    );
+
+    // Replace changelog variables
+    content = content.replace(
+      /{addedFeatures}/g,
+      'Added features will be extracted from source content.'
+    );
+    content = content.replace(
+      /{changedFeatures}/g,
+      'Changed features will be identified from updates.'
+    );
+    content = content.replace(
+      /{deprecatedFeatures}/g,
+      'Deprecated features will be noted if mentioned.'
+    );
+    content = content.replace(
+      /{removedFeatures}/g,
+      'Removed features will be documented if applicable.'
+    );
+    content = content.replace(
+      /{fixedIssues}/g,
+      'Fixed issues will be listed from resolved items.'
+    );
+    content = content.replace(
+      /{securityUpdates}/g,
+      'Security updates will be highlighted if present.'
+    );
+    content = content.replace(
+      /{previousVersions}/g,
+      'Previous versions will be referenced as available.'
+    );
 
     return content;
   }
 
+  getUniqueContributors(data) {
+    const contributors = new Set();
+
+    if (data.discussion?.author) {
+      contributors.add(data.discussion.author);
+    }
+
+    if (data.prs) {
+      data.prs.forEach((pr) => {
+        if (pr.author) contributors.add(pr.author);
+      });
+    }
+
+    if (data.issues) {
+      data.issues.forEach((issue) => {
+        if (issue.author) contributors.add(issue.author);
+      });
+    }
+
+    return Array.from(contributors);
+  }
+
+  generatePRList(prs) {
+    if (!prs || prs.length === 0) {
+      return 'No pull requests processed.';
+    }
+
+    return prs
+      .map((pr) => `- [#${pr.number}](${pr.url}): ${pr.title} by @${pr.author}`)
+      .join('\n');
+  }
+
+  generateContributorList(data) {
+    const contributors = this.getUniqueContributors(data);
+    if (contributors.length === 0) {
+      return 'Contributors will be recognized based on participation.';
+    }
+
+    return `Special thanks to: ${contributors.map((c) => `@${c}`).join(', ')}`;
+  }
   generateSourceDescription(data) {
     const sources = [];
 
@@ -1038,6 +1160,25 @@ ${data.jiraIssues
   - DOC_TYPE: ${process.env.DOC_TYPE || 'Not set'}
   - SOURCE_MODULES: ${process.env.SOURCE_MODULES || 'Not set'}
   - PR_NUMBERS: ${process.env.PR_NUMBERS || 'Not set'}
+  - ISSUE_NUMBERS: ${process.env.ISSUE_NUMBERS || 'Not set'}
+  - JIRA_KEYS: ${process.env.JIRA_KEYS || 'Not set'}
+  - DISCUSSION_NUMBER: ${process.env.DISCUSSION_NUMBER || 'Not set'}
+  - DISCUSSION_TITLE: ${process.env.DISCUSSION_TITLE || 'Not set'}
+  - DISCUSSION_AUTHOR: ${process.env.DISCUSSION_AUTHOR || 'Not set'}
+  - DISCUSSION_COMMENTS_COUNT: ${
+    process.env.DISCUSSION_COMMENTS_COUNT || 'Not set'
+  }
+  - DISCUSSION_URL: ${process.env.DISCUSSION_URL || 'Not set'}
+
+- **Collected Data Summary:**
+  - Discussion: ${
+    data.discussion
+      ? `#${data.discussion.number} with ${data.discussion.commentsCount} comments`
+      : 'None'
+  }
+  - PRs: ${data.prs.length}
+  - Issues: ${data.issues.length}
+  - Jira Tickets: ${data.jiraIssues.length}
   - ISSUE_NUMBERS: ${process.env.ISSUE_NUMBERS || 'Not set'}
   - JIRA_KEYS: ${process.env.JIRA_KEYS || 'Not set'}
 

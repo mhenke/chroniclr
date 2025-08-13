@@ -172,6 +172,7 @@ jobs:
           DISCUSSION_BODY: ${{ steps.discussion.outputs.body }}
           DISCUSSION_AUTHOR: ${{ steps.discussion.outputs.author }}
           DISCUSSION_URL: ${{ steps.discussion.outputs.url }}
+          DISCUSSION_COMMENTS_COUNT: ${{ steps.discussion.outputs.comments_count }}
         run: |
           npm run generate-document
 
