@@ -37,50 +37,6 @@ class AIDocumentGenerator {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  async checkRateLimits() {
-    try {
-      const response = await fetch('https://api.github.com/rate_limit', {
-        headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
-          'Accept': 'application/vnd.github.v3+json'
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        return data.resources;
-      } else {
-        core.warning(`Could not fetch rate limit info: ${response.status} ${response.statusText}`);
-        return null;
-      }
-    } catch (error) {
-      core.warning(`Rate limit check failed: ${error.message}`);
-      return null;
-    }
-  }
-
-  formatRateLimitInfo(resources) {
-    if (!resources) return 'Rate limit info unavailable';
-
-    const categories = ['core', 'search', 'graphql', 'code_search'];
-    let info = '\n📊 GitHub API Rate Limit Status:\n';
-    
-    categories.forEach(category => {
-      if (resources[category]) {
-        const { limit, used, remaining, reset } = resources[category];
-        const resetDate = new Date(reset * 1000).toISOString();
-        const percentUsed = Math.round((used / limit) * 100);
-        
-        let status = '✅';
-        if (percentUsed > 90) status = '🔴';
-        else if (percentUsed > 75) status = '🟡';
-        
-        info += `  ${status} ${category.toUpperCase()}: ${used}/${limit} (${percentUsed}% used, resets at ${resetDate})\n`;
-      }
-    });
-    
-    return info;
-  }
 
   extractRateLimitHeaders(response) {
     const headers = {};
@@ -103,25 +59,17 @@ class AIDocumentGenerator {
     return Object.keys(headers).length > 0 ? headers : null;
   }
 
-  identifyRateLimitType(response, rateLimits) {
-    // Check if it's GitHub Models API limit vs GitHub REST API limit
+  identifyRateLimitType(response) {
     const url = response.url || '';
+    const retryAfter = response.headers.get('retry-after');
     
     if (url.includes('models.github.ai')) {
-      return 'GitHub Models API (AI Generation)';
-    }
-    
-    if (url.includes('api.github.com')) {
-      // Determine which GitHub API category hit the limit
-      if (rateLimits) {
-        const categories = ['core', 'search', 'graphql', 'code_search'];
-        for (const category of categories) {
-          if (rateLimits[category] && rateLimits[category].remaining === 0) {
-            return `GitHub REST API - ${category.toUpperCase()} category`;
-          }
-        }
+      let waitTime = '';
+      if (retryAfter) {
+        const minutes = Math.ceil(parseInt(retryAfter) / 60);
+        waitTime = ` (wait ~${minutes} minutes)`;
       }
-      return 'GitHub REST API (unknown category)';
+      return `GitHub Models API${waitTime}`;
     }
     
     return 'Unknown API endpoint';
@@ -160,27 +108,25 @@ class AIDocumentGenerator {
 
         if (!response.ok) {
           if (response.status === 429) {
-            // Check which type of rate limit we hit
-            core.error(`🚨 Rate limit hit (HTTP 429): ${response.statusText}`);
+            const limitType = this.identifyRateLimitType(response);
+            core.error(`🚨 Rate limit hit: ${limitType}`);
             
-            // Check GitHub API rate limits to understand what limit was hit
-            const rateLimits = await this.checkRateLimits();
-            const rateLimitInfo = this.formatRateLimitInfo(rateLimits);
-            core.error(rateLimitInfo);
-            
-            // Check response headers for specific rate limit info
-            const rateLimitHeaders = this.extractRateLimitHeaders(response);
-            if (rateLimitHeaders) {
-              core.error(`🔍 Rate Limit Headers: ${JSON.stringify(rateLimitHeaders, null, 2)}`);
+            const retryAfter = response.headers.get('retry-after');
+            if (retryAfter) {
+              const waitSeconds = parseInt(retryAfter);
+              const waitMinutes = Math.ceil(waitSeconds / 60);
+              core.error(`⏰ Must wait ${waitSeconds} seconds (~${waitMinutes} minutes) before next request`);
+              core.error(`💡 Falling back to template-only generation to avoid long wait`);
+              return null; // Don't retry - wait time is too long
             }
             
             if (attempt < maxRetries) {
               const delayMs = baseDelayMs * Math.pow(2, attempt);
-              core.warning(`⏳ Waiting ${delayMs}ms before retry (attempt ${attempt + 1}/${maxRetries})...`);
+              core.warning(`⏳ Retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})...`);
               await this.sleep(delayMs);
               continue;
             } else {
-              core.error(`❌ Max retries exceeded. Rate limit type: ${this.identifyRateLimitType(response, rateLimits)}`);
+              core.error(`❌ Max retries exceeded`);
             }
           }
           
@@ -338,24 +284,6 @@ class AIDocumentGenerator {
       
       core.info(`Processing ${docTypes.length} document types: ${docTypes.join(', ')}`);
       
-      // Check rate limits proactively
-      const rateLimits = await this.checkRateLimits();
-      if (rateLimits) {
-        const rateLimitInfo = this.formatRateLimitInfo(rateLimits);
-        core.info(`📊 Pre-generation rate limit check:${rateLimitInfo}`);
-        
-        // Warn if any category is near limit
-        const categories = ['core', 'search', 'graphql'];
-        for (const category of categories) {
-          if (rateLimits[category]) {
-            const { used, limit, remaining } = rateLimits[category];
-            const percentUsed = (used / limit) * 100;
-            if (percentUsed > 90) {
-              core.warning(`⚠️  ${category.toUpperCase()} API limit is ${Math.round(percentUsed)}% exhausted (${remaining} requests remaining)`);
-            }
-          }
-        }
-      }
       
       // Collect data from all enabled sources
       const data = await this.collectDataFromSources();
@@ -373,13 +301,6 @@ class AIDocumentGenerator {
     } catch (error) {
       core.error(`Document generation failed: ${error.message}`);
       throw error;
-    } finally {
-      // Show final rate limit status
-      const finalRateLimits = await this.checkRateLimits();
-      if (finalRateLimits) {
-        const finalRateLimitInfo = this.formatRateLimitInfo(finalRateLimits);
-        core.info(`📊 Post-generation rate limit status:${finalRateLimitInfo}`);
-      }
     }
   }
 
