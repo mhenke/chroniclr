@@ -8,7 +8,17 @@ This document identifies all potentially fabricated or synthesized data in Chron
 
 The following content is **GENERATED** by the system when source data is insufficient and should be flagged for audit review:
 
-### 1. Risk and Blocker Assessments
+### 1. 🚨 **CRITICAL: Fabricated Meeting Attendees**
+
+**Location:** AI-generated content and `generateStakeholdersSection(data)`
+**Fabricated Examples:**
+
+- Real: `@mhenke` (from actual discussion data)
+- Fabricated: `@sarah-dev (Engineering), @alex-pm (Product), @jamie-design (Design)`
+
+**🚨 AUDIT CONCERN:** AI fabricates fake attendees with specific names and roles, creating false meeting attribution.
+
+### 2. Risk and Blocker Assessments
 
 **Location:** `generateRisksBlockers(data)`
 **Fabricated Content:**
@@ -64,13 +74,13 @@ The following content is **GENERATED** by the system when source data is insuffi
 
 ### 6. Meeting and Project Participants
 
-**Location:** `generateStakeholdersSection(data)` (fallback mode)
+**Location:** `generateStakeholdersSection(data)` and AI-generated content
 **Fabricated Content:**
 
-- "Project team members"
-- "Key stakeholders"
+- Generic roles: "Project team members", "Key stakeholders"
+- **CRITICAL**: AI-generated fake attendees with specific names and roles
 
-**🚨 AUDIT CONCERN:** May create false participant attribution.
+**🚨 AUDIT CONCERN:** Creates false meeting attribution and participant records.
 
 ### 7. Technical Implementation Details
 
@@ -203,10 +213,12 @@ Update all templates to include:
 ### Before Document Publication
 
 - [ ] Review authenticity score (target: >70%)
+- [ ] **CRITICAL**: Verify all attendees/participants are real people from source data
 - [ ] Validate all financial claims against actual budgets
 - [ ] Confirm timeline statements with project managers
 - [ ] Verify risk assessments with security team
 - [ ] Check action items with responsible parties
+- [ ] Ensure no fabricated names or roles in meeting records
 
 ### Ongoing Compliance
 
@@ -217,11 +229,12 @@ Update all templates to include:
 
 ## 🎯 Success Criteria
 
-1. **Zero Fabricated Financial Data** in production documents
-2. **Clear Labeling** of all generated content
-3. **Approval Workflows** for high-risk generated content
-4. **Audit Trails** for all content generation decisions
-5. **Stakeholder Validation** of common fallback patterns
+1. **Zero Fabricated Attendee Data** - No fake names or roles in meeting records
+2. **Zero Fabricated Financial Data** in production documents
+3. **Clear Labeling** of all generated content
+4. **Approval Workflows** for high-risk generated content
+5. **Audit Trails** for all content generation decisions
+6. **Stakeholder Validation** of common fallback patterns
 
 ---
 

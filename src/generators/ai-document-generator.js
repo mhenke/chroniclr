@@ -314,7 +314,9 @@ class AIDocumentGenerator {
     }
 
     prompt += `## ⚠️ CRITICAL: Data Integrity Requirements\n`;
-    prompt += `- **ATTENDEES/PARTICIPANTS**: Use ONLY actual people from the source data (${data.discussion?.author ? `@${data.discussion.author}` : 'none provided'})\n`;
+    prompt += `- **ATTENDEES/PARTICIPANTS**: Use ONLY actual people from the source data (${
+      data.discussion?.author ? `@${data.discussion.author}` : 'none provided'
+    })\n`;
     prompt += `- **DO NOT fabricate** fake attendees, names, or roles\n`;
     prompt += `- **DO NOT invent** participants not mentioned in the discussions/PRs/issues\n`;
     prompt += `- Use "TBD" or "To be determined" for missing information\n\n`;
@@ -397,9 +399,11 @@ class AIDocumentGenerator {
     prompt += `3. Extracts key insights, decisions, and action items\n`;
     prompt += `4. Creates clear sections and proper markdown formatting\n`;
     prompt += `5. Maintains professional documentation standards\n\n`;
-    
+
     prompt += `## ⚠️ CRITICAL: Data Integrity Requirements\n`;
-    prompt += `- **ATTENDEES/PARTICIPANTS**: Use ONLY the actual people mentioned in the source data (${data.discussion?.author ? `@${data.discussion.author}` : 'none provided'})\n`;
+    prompt += `- **ATTENDEES/PARTICIPANTS**: Use ONLY the actual people mentioned in the source data (${
+      data.discussion?.author ? `@${data.discussion.author}` : 'none provided'
+    })\n`;
     prompt += `- **DO NOT fabricate** fake attendees like @sarah-dev, @alex-pm, @jamie-design, etc.\n`;
     prompt += `- **DO NOT add** role-based participants unless they are explicitly mentioned in the source data\n`;
     prompt += `- **DO NOT invent** people, names, or roles not present in the actual discussions/PRs/issues\n`;
@@ -1774,8 +1778,12 @@ Bad examples: "database", "mobile", "security" (too generic)`;
       return '> 🚫 **FABRICATED STAKEHOLDER DATA DISABLED**: Real stakeholder information required.\n\n[Stakeholders to be identified]';
     }
 
-    const FABRICATION_WARNING = '> ⚠️ **GENERATED STAKEHOLDERS**: These roles are system-generated and require validation.\n\n';
-    return FABRICATION_WARNING + '- Project Manager\n- Development Team\n- Quality Assurance\n- Product Owner';
+    const FABRICATION_WARNING =
+      '> ⚠️ **GENERATED STAKEHOLDERS**: These roles are system-generated and require validation.\n\n';
+    return (
+      FABRICATION_WARNING +
+      '- Project Manager\n- Development Team\n- Quality Assurance\n- Product Owner'
+    );
   }
 
   generateRecentUpdatesSection(data) {
