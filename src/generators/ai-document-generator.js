@@ -260,20 +260,69 @@ class AIDocumentGenerator {
       // Collect data from all enabled sources
       const data = await this.collectDataFromSources();
       
-      // Generate each document type
+      // Use bundled generation to reduce API calls
+      if (docTypes.length > 1) {
+        core.info('Using bundled AI generation for multiple documents...');
+        return await this.generateBundledDocuments(docTypes, data);
+      } else {
+        core.info('Using single document generation...');
+        const result = await this.generateSingleDocument(docTypes[0], data);
+        return result ? [result] : [];
+      }
+      
+    } catch (error) {
+      core.error(`Document generation failed: ${error.message}`);
+      throw error;
+    }
+  }
+
+  async generateBundledDocuments(docTypes, data) {
+    try {
+      // Load all templates
+      const templates = {};
+      for (const docType of docTypes) {
+        templates[docType] = await this.loadTemplate(docType);
+      }
+      
+      // Create bundled AI prompt that generates all documents + topic in one call
+      const bundledPrompt = await this.createBundledAIPrompt(docTypes, data, templates);
+      
+      // Single AI API call for all documents and topic
+      core.info(`Making single AI API call for ${docTypes.length} documents and topic generation...`);
+      const aiResponse = await this.generateCompletion(bundledPrompt);
+      
+      if (!aiResponse) {
+        core.warning('Bundled AI generation failed, falling back to individual templates');
+        return await this.generateFallbackDocuments(docTypes, data, templates);
+      }
+      
+      // Parse the bundled response
+      const parsedResponse = this.parseBundledResponse(aiResponse, docTypes);
+      
+      // Save documents and return results
       const results = [];
       for (const docType of docTypes) {
-        core.info(`Generating ${docType} document...`);
-        const result = await this.generateSingleDocument(docType, data);
+        const content = parsedResponse.documents[docType] || this.createFallbackContent(docType, data, templates[docType]);
+        const result = await this.saveDocument(docType, data, content, parsedResponse.topic);
         if (result) {
           results.push(result);
         }
       }
       
       return results;
+      
     } catch (error) {
-      core.error(`Document generation failed: ${error.message}`);
-      throw error;
+      core.error(`Bundled generation failed: ${error.message}`);
+      // Fallback to individual generation
+      core.info('Falling back to individual document generation...');
+      const results = [];
+      for (const docType of docTypes) {
+        const result = await this.generateSingleDocument(docType, data);
+        if (result) {
+          results.push(result);
+        }
+      }
+      return results;
     }
   }
 

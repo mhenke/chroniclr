@@ -71,7 +71,12 @@ jobs:
           fi
 
       - name: Update documentation
-        run: npm run update-documents -- ${{ env.FORCE_UPDATE }} ${{ env.PR_NUMBER }} ${{ env.SINCE }}
+        run: |
+          ARGS=""
+          [ "$FORCE_UPDATE" ] && ARGS="$ARGS $FORCE_UPDATE"
+          [ "$PR_NUMBER" ] && ARGS="$ARGS $PR_NUMBER"
+          [ "$SINCE" ] && ARGS="$ARGS $SINCE"
+          npm run update-documents -- $ARGS
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

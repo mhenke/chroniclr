@@ -7,18 +7,21 @@
 Chroniclr automates project documentation and stakeholder communications using GitHub Actions and AI. It processes GitHub discussions, issues, pull requests, and Jira data to generate comprehensive project documentation and communication materials automatically.
 
 ### 🤖 **AI-Powered Generation**
+
 - Uses GitHub Models API (GPT-4o) - **no API keys required**
 - Processes full threads and cross-references related content
 - Smart content prioritization based on engagement
 - Automatic action item extraction and GitHub issue creation
 
 ### 📊 **Data Sources**
+
 - **GitHub Discussions** - Community conversations and decisions
 - **GitHub Issues** - Bug reports, feature requests, project tracking
 - **Pull Requests** - Code changes, releases, technical documentation
 - **Jira Integration** - Sprint data, epics, project metrics
 
 ### 📚 **Generated Documents & Communications**
+
 - Project summaries and meeting notes
 - Initiative briefs and technical documentation
 - Release notes and change impact assessments
@@ -38,11 +41,12 @@ cd chroniclr
 npm install
 ```
 
-### 2. Configure Environment Variables
+### 2. (Optional) Configure Jira Environment Variables
 
-Create or update `.env` file:
+If you want to enable Jira integration, create or update a `.env` file with the following:
+
 ```bash
-# For Jira integration (optional)
+# Only required for Jira integration
 JIRA_BASE_URL=https://yourcompany.atlassian.net
 JIRA_USER_EMAIL=bot@yourcompany.com
 JIRA_API_TOKEN=your-jira-token
@@ -52,39 +56,41 @@ JIRA_PROJECT=PROJ
 ### 3. Configure Repository Permissions
 
 The GitHub Actions workflow requires these permissions:
+
 ```yaml
 permissions:
-  contents: write      # For creating files and commits
-  discussions: read    # For reading discussion data
-  issues: write        # For creating action item issues
-  pull-requests: read  # For PR analysis
-  models: read         # For GitHub Models API access
+  contents: write # For creating files and commits
+  discussions: read # For reading discussion data
+  issues: write # For creating action item issues
+  pull-requests: read # For PR analysis
+  models: read # For GitHub Models API access
 ```
 
 ### 4. Run Documentation Generation
 
-The system works automatically with GitHub Actions:
+The system works automatically with GitHub Actions. The main workflow file is `update-docs.yml`:
 
 ```bash
 # Process specific discussion
-gh workflow run chroniclr.yml -f discussion_number=123
+gh workflow run update-docs.yml -f discussion_number=123
 
 # Process specific issues
-gh workflow run chroniclr.yml -f issue_numbers=456,789
+gh workflow run update-docs.yml -f issue_numbers=456,789
 
 # Process pull requests
-gh workflow run chroniclr.yml -f pr_numbers=101,102
+gh workflow run update-docs.yml -f pr_numbers=101,102
 
 # Include Jira data
-gh workflow run chroniclr.yml -f jira_keys=PROJ-123,FEAT-456
+gh workflow run update-docs.yml -f jira_keys=PROJ-123,FEAT-456
 
 # Multi-source processing
-gh workflow run chroniclr.yml -f discussion_number=123 -f pr_numbers=456 -f jira_keys=PROJ-789
+gh workflow run update-docs.yml -f discussion_number=123 -f pr_numbers=456 -f jira_keys=PROJ-789
 ```
 
 ## How It Works
 
 ### Automated Pipeline
+
 1. **GitHub Actions** triggers on discussion/PR events or manual dispatch
 2. **Content Collection** gathers data from specified sources
 3. **AI Processing** analyzes content using GitHub Models API
@@ -93,6 +99,7 @@ gh workflow run chroniclr.yml -f discussion_number=123 -f pr_numbers=456 -f jira
 6. **PR Creation** opens pull request with generated content
 
 ### Document Types by Source
+
 - **Discussions**: Project summaries, initiative briefs, meeting notes
 - **Issues**: Bug analysis, feature tracking, milestone reports
 - **Pull Requests**: Release notes, change impact assessments
@@ -102,14 +109,18 @@ gh workflow run chroniclr.yml -f discussion_number=123 -f pr_numbers=456 -f jira
 ## Configuration
 
 ### Label-Based Document Routing
+
 Discussion labels determine document types via `chroniclr.config.json`:
+
 - `documentation` → Summary + meeting notes
 - `initiative` → Initiative brief
 - `release` → Changelog
 - `planning` → Meeting notes
 
 ### Jira Integration
+
 Configure Jira settings in `.env`:
+
 - Set `JIRA_BASE_URL`, `JIRA_USER_EMAIL`, `JIRA_API_TOKEN`
 - Update `JIRA_PROJECT` for your project key
 - System will automatically discover related Jira items
@@ -119,8 +130,9 @@ Configure Jira settings in `.env`:
 Chroniclr generates various types of communications based on discussion labels:
 
 ### Available Communication Types
+
 - **release-communication** - Stakeholder notifications for releases
-- **stakeholder-update** - Progress updates for project stakeholders  
+- **stakeholder-update** - Progress updates for project stakeholders
 - **team-notification** - Team-specific announcements and updates
 - **meeting-notes** - Structured meeting summaries
 - **initiative-brief** - Project initiative documentation
@@ -149,12 +161,14 @@ chroniclr/
 ## Debugging
 
 ### Common Issues
+
 - **No documents generated**: Check discussion labels and permissions
 - **Jira integration fails**: Check GitHub Secrets configuration
 - **AI generation errors**: Review GitHub Actions logs
 - **Communication not generated**: Verify discussion has appropriate labels
 
 ### Test Commands
+
 ```bash
 # Test discussion processing
 npm run validate-discussion
@@ -169,16 +183,19 @@ npm run generate-document
 ## Features Summary
 
 ### 🚀 **Zero Configuration**
+
 - Works with GitHub's built-in permissions and Models API
 - No external API keys required (except optional Jira)
 - Automatic setup with minimal configuration
 
 ### 🤖 **AI-Powered Intelligence**
+
 - Full content analysis across all sources
 - Smart communication generation for different stakeholder groups
 - Cross-platform correlation and relationship detection
 
 ### 📋 **Production Ready**
+
 - Robust error handling and retry logic
 - Rate limiting and API compliance
 - Comprehensive logging and monitoring
