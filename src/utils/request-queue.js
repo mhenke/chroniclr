@@ -6,7 +6,8 @@
 const core = require('@actions/core');
 
 class RequestQueue {
-  constructor(concurrency = 1, delayBetweenRequests = 3000) { // Increased delay to 3 seconds
+  constructor(concurrency = 1, delayBetweenRequests = 3000) {
+    // Increased delay to 3 seconds
     this.queue = [];
     this.processing = false;
     this.concurrency = concurrency; // Max concurrent requests
@@ -46,10 +47,14 @@ class RequestQueue {
       const now = Date.now();
       const timeSinceLastRequest = now - this.lastRequestTime;
       const dynamicDelay = this.delayBetweenRequests * this.backoffMultiplier;
-      
+
       if (timeSinceLastRequest < dynamicDelay) {
         const waitTime = dynamicDelay - timeSinceLastRequest;
-        core.info(`⏱️  Enhanced rate limiting: waiting ${Math.round(waitTime)}ms before next request (backoff: ${this.backoffMultiplier}x)`);
+        core.info(
+          `⏱️  Enhanced rate limiting: waiting ${Math.round(
+            waitTime
+          )}ms before next request (backoff: ${this.backoffMultiplier}x)`
+        );
         await this.sleep(waitTime);
       }
 
@@ -79,10 +84,16 @@ class RequestQueue {
       this.backoffMultiplier = Math.max(1, this.backoffMultiplier * 0.8); // Gradually reduce backoff
     } catch (error) {
       // Check if it's a rate limit error
-      if (error.message && (error.message.includes('429') || error.message.includes('Too Many Requests'))) {
+      if (
+        error.message &&
+        (error.message.includes('429') ||
+          error.message.includes('Too Many Requests'))
+      ) {
         this.consecutiveFailures++;
         this.backoffMultiplier = Math.min(10, this.backoffMultiplier * 1.8); // Increase backoff more aggressively
-        core.warning(`🚨 Rate limit detected. Consecutive failures: ${this.consecutiveFailures}, New backoff: ${this.backoffMultiplier}x`);
+        core.warning(
+          `🚨 Rate limit detected. Consecutive failures: ${this.consecutiveFailures}, New backoff: ${this.backoffMultiplier}x`
+        );
       }
       request.reject(error);
     }

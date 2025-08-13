@@ -20,6 +20,22 @@ class AIDocumentGenerator {
     this.model = 'gpt-4o';
     this.consecutiveAPIFailures = 0; // Track consecutive failures for fallback strategy
 
+    // Fabrication Control Configuration
+    this.allowFabricatedContent =
+      process.env.ALLOW_FABRICATED_CONTENT !== 'false'; // Default: allow
+    this.productionMode = process.env.PRODUCTION_MODE === 'true'; // Default: false
+
+    if (this.productionMode) {
+      core.info('🏭 Production Mode: Fabricated content restricted');
+      this.allowFabricatedContent = false; // Force disable in production
+    }
+
+    core.info(
+      `🛡️ Fabricated content ${
+        this.allowFabricatedContent ? 'ALLOWED' : 'DISABLED'
+      }`
+    );
+
     // Initialize data source clients only if GitHub token is available
     if (this.apiKey) {
       this.prClient = new PullRequestClient();
@@ -86,20 +102,29 @@ class AIDocumentGenerator {
               attempt < maxRetries
             ) {
               // Enhanced exponential backoff with jitter
-              const exponentialDelay = Math.min(baseDelayMs * Math.pow(2, attempt), maxDelayMs);
+              const exponentialDelay = Math.min(
+                baseDelayMs * Math.pow(2, attempt),
+                maxDelayMs
+              );
               const jitter = Math.random() * 1000; // Add randomness to prevent thundering herd
               const delayMs = exponentialDelay + jitter;
-              
+
               core.warning(
-                `⏱️  Rate limit/Server error ${response.status}. Enhanced backoff: waiting ${Math.round(delayMs)}ms before retry... (${attempt + 1}/${maxRetries})`
+                `⏱️  Rate limit/Server error ${
+                  response.status
+                }. Enhanced backoff: waiting ${Math.round(
+                  delayMs
+                )}ms before retry... (${attempt + 1}/${maxRetries})`
               );
-              
+
               await this.sleep(delayMs);
               attempt++;
               continue;
             }
 
-            const errorText = await response.text().catch(() => 'Unknown error');
+            const errorText = await response
+              .text()
+              .catch(() => 'Unknown error');
             core.error(
               `❌ AI API request failed: ${response.status} ${response.statusText} - ${errorText}`
             );
@@ -119,16 +144,22 @@ class AIDocumentGenerator {
         } catch (error) {
           core.error(`💥 AI API request error: ${error.message}`);
           this.consecutiveAPIFailures++;
-          
+
           if (attempt < maxRetries) {
             attempt++;
             const retryDelay = baseDelayMs * Math.pow(2, attempt);
-            core.info(`🔄 Retrying in ${retryDelay}ms... (attempt ${attempt}/${maxRetries})`);
+            core.info(
+              `🔄 Retrying in ${retryDelay}ms... (attempt ${attempt}/${maxRetries})`
+            );
             await this.sleep(retryDelay);
             continue;
           }
-          
-          core.warning(`⚠️  AI generation failed after ${maxRetries + 1} attempts. Consecutive failures: ${this.consecutiveAPIFailures}`);
+
+          core.warning(
+            `⚠️  AI generation failed after ${
+              maxRetries + 1
+            } attempts. Consecutive failures: ${this.consecutiveAPIFailures}`
+          );
           return null;
         }
       }
@@ -282,6 +313,12 @@ class AIDocumentGenerator {
       prompt += '\n';
     }
 
+    prompt += `## ⚠️ CRITICAL: Data Integrity Requirements\n`;
+    prompt += `- **ATTENDEES/PARTICIPANTS**: Use ONLY actual people from the source data (${data.discussion?.author ? `@${data.discussion.author}` : 'none provided'})\n`;
+    prompt += `- **DO NOT fabricate** fake attendees, names, or roles\n`;
+    prompt += `- **DO NOT invent** participants not mentioned in the discussions/PRs/issues\n`;
+    prompt += `- Use "TBD" or "To be determined" for missing information\n\n`;
+
     prompt += `Please generate the following ${docTypes.length} documents and provide a suitable topic folder name:\n\n`;
 
     docTypes.forEach((docType, index) => {
@@ -360,6 +397,13 @@ class AIDocumentGenerator {
     prompt += `3. Extracts key insights, decisions, and action items\n`;
     prompt += `4. Creates clear sections and proper markdown formatting\n`;
     prompt += `5. Maintains professional documentation standards\n\n`;
+    
+    prompt += `## ⚠️ CRITICAL: Data Integrity Requirements\n`;
+    prompt += `- **ATTENDEES/PARTICIPANTS**: Use ONLY the actual people mentioned in the source data (${data.discussion?.author ? `@${data.discussion.author}` : 'none provided'})\n`;
+    prompt += `- **DO NOT fabricate** fake attendees like @sarah-dev, @alex-pm, @jamie-design, etc.\n`;
+    prompt += `- **DO NOT add** role-based participants unless they are explicitly mentioned in the source data\n`;
+    prompt += `- **DO NOT invent** people, names, or roles not present in the actual discussions/PRs/issues\n`;
+    prompt += `- If insufficient attendee data exists, use "TBD" or "To be determined"\n\n`;
 
     prompt += `## Template Structure\n${template}\n\n`;
     prompt += `Please replace template variables with appropriate content based on the data above.`;
@@ -376,17 +420,21 @@ class AIDocumentGenerator {
         .filter((type) => type);
 
       core.info(
-        `🎯 Processing ${docTypes.length} document types: ${docTypes.join(', ')}`
+        `🎯 Processing ${docTypes.length} document types: ${docTypes.join(
+          ', '
+        )}`
       );
 
       // Collect data from all enabled sources
       const data = await this.collectDataFromSources();
 
       let results;
-      
+
       // Prioritize template-based generation to minimize API calls
-      const preferTemplates = process.env.PREFER_TEMPLATES === 'true' || this.consecutiveAPIFailures > 2;
-      
+      const preferTemplates =
+        process.env.PREFER_TEMPLATES === 'true' ||
+        this.consecutiveAPIFailures > 2;
+
       if (preferTemplates) {
         core.info('📝 Using template-based generation to avoid rate limits...');
         results = await this.generateTemplateOnlyDocuments(docTypes, data);
@@ -401,7 +449,9 @@ class AIDocumentGenerator {
 
       // If AI generation failed completely, fall back to templates
       if (!results || results.length === 0) {
-        core.warning('⚠️  AI generation failed completely, using template fallback for all documents');
+        core.warning(
+          '⚠️  AI generation failed completely, using template fallback for all documents'
+        );
         results = await this.generateTemplateOnlyDocuments(docTypes, data);
       }
 
@@ -538,7 +588,9 @@ class AIDocumentGenerator {
   }
 
   async generateTemplateOnlyDocuments(docTypes, data) {
-    core.info('📝 Generating documents using template-based approach only (no AI calls)...');
+    core.info(
+      '📝 Generating documents using template-based approach only (no AI calls)...'
+    );
     const results = [];
 
     // Generate a simple topic without AI
@@ -551,7 +603,9 @@ class AIDocumentGenerator {
       try {
         templates[docType] = await this.loadTemplate(docType);
       } catch (error) {
-        core.warning(`⚠️  Could not load template for ${docType}: ${error.message}`);
+        core.warning(
+          `⚠️  Could not load template for ${docType}: ${error.message}`
+        );
         continue;
       }
     }
@@ -567,7 +621,7 @@ class AIDocumentGenerator {
         // Use template with variable replacement only
         let content = templates[docType];
         content = this.replaceTemplateVariables(content, data);
-        
+
         const result = await this.saveDocument(docType, data, content, topic);
         if (result) {
           results.push(result);
@@ -580,7 +634,9 @@ class AIDocumentGenerator {
       }
     }
 
-    core.info(`📊 Successfully generated ${results.length}/${docTypes.length} documents using templates only`);
+    core.info(
+      `📊 Successfully generated ${results.length}/${docTypes.length} documents using templates only`
+    );
     return results;
   }
 
@@ -594,15 +650,15 @@ class AIDocumentGenerator {
         .replace(/\s+/g, '-')
         .substring(0, 50);
     }
-    
+
     if (data.prs && data.prs.length > 0) {
       return `pr-updates-${data.prs.length}-items`;
     }
-    
+
     if (data.issues && data.issues.length > 0) {
       return `issue-updates-${data.issues.length}-items`;
     }
-    
+
     // Fallback with date
     const date = new Date().toISOString().split('T')[0];
     return `project-update-${date}`;
@@ -919,7 +975,12 @@ Bad examples: "database", "mobile", "security" (too generic)`;
     // Replace basic date/time variables
     content = content.replace(/{date}/g, currentDate);
     content = content.replace(/{lastUpdated}/g, currentDate);
-    content = content.replace(/{releaseDate}/g, currentDate);
+
+    // Release date should be validated - it's not necessarily today
+    const releaseDate = this.allowFabricatedContent
+      ? `${currentDate} <!-- ⚠️ GENERATED DATE: Validate actual release date -->`
+      : '[Release date to be confirmed]';
+    content = content.replace(/{releaseDate}/g, releaseDate);
 
     // Replace meeting-specific time variables
     const currentTime = new Date().toLocaleTimeString('en-US', {
@@ -940,7 +1001,10 @@ Bad examples: "database", "mobile", "security" (too generic)`;
 
     // Replace status and progress variables
     content = content.replace(/{status}/g, 'Active');
-    content = content.replace(/{progress}/g, 'In Progress');
+
+    // Calculate actual progress percentage or use descriptive status
+    const progressValue = this.calculateProgressValue(data);
+    content = content.replace(/{progress}/g, progressValue);
 
     // Replace URL variables
     if (data.discussion) {
@@ -1301,12 +1365,20 @@ Bad examples: "database", "mobile", "security" (too generic)`;
       'duration'
     );
 
-    // Track generated fallbacks
-    contentSources.generated.push(
-      'risksBlockers',
-      'budgetStatus',
-      'upcomingItems'
-    );
+    // Track generated fallbacks (high-risk fabricated content)
+    const generatedVars = ['risksBlockers', 'budgetStatus', 'upcomingItems'];
+
+    // Add additional generated variables based on configuration
+    if (this.allowFabricatedContent) {
+      generatedVars.push(
+        'previousMeetingNotes',
+        'duration',
+        'releaseDate',
+        'decisionsNeeded'
+      );
+    }
+
+    contentSources.generated.push(...generatedVars);
 
     // Add stakeholders as extracted if we have real participants
     const uniqueContributors = this.getUniqueContributors(data);
@@ -1360,19 +1432,29 @@ Bad examples: "database", "mobile", "security" (too generic)`;
 
   // Meeting-specific helper methods
   estimateMeetingDuration(data) {
+    // Add fabrication warning for estimated duration
+    if (!this.allowFabricatedContent) {
+      return '> 🚫 **FABRICATED DURATION DISABLED**: Actual meeting duration requires manual input.\n\n[Duration to be specified]';
+    }
+
     // Estimate duration based on discussion content length
     const contentLength = data.discussion?.body?.length || 0;
     const commentsCount = data.discussion?.commentsCount || 0;
+    const FABRICATION_WARNING =
+      '> ⚠️ **ESTIMATED DURATION**: This duration is system-estimated and requires validation.\n\n';
 
+    let duration;
     if (contentLength < 500 && commentsCount < 5) {
-      return '30 minutes';
+      duration = '30 minutes';
     } else if (contentLength < 1500 && commentsCount < 15) {
-      return '45 minutes';
+      duration = '45 minutes';
     } else if (contentLength < 3000 && commentsCount < 30) {
-      return '1 hour';
+      duration = '1 hour';
     } else {
-      return '1.5 hours';
+      duration = '1.5 hours';
     }
+
+    return `${FABRICATION_WARNING}${duration}`;
   }
 
   determineMeetingType(data) {
@@ -1557,11 +1639,18 @@ Bad examples: "database", "mobile", "security" (too generic)`;
   }
 
   generatePreviousMeetingNotesUrl(data) {
-    // Construct URL to previous meeting notes in the same repository
+    // Check if fabricated links are allowed
+    if (!this.allowFabricatedContent) {
+      return '> 🚫 **FABRICATED LINK DISABLED**: Previous meeting notes require manual linking or enable ALLOW_FABRICATED_CONTENT=true for development.\n\nPrevious meeting notes: [Link to be provided]';
+    }
+
+    // Don't fabricate URLs to non-existent files - this creates broken links
+    const FABRICATION_WARNING =
+      '> ⚠️ **GENERATED LINK**: This link is system-generated and may not exist. Verify before distribution.\n\n';
     const repoUrl = `https://github.com/${
       process.env.GITHUB_REPOSITORY || 'owner/repo'
     }`;
-    return `${repoUrl}/blob/main/generated/meeting-notes/previous-meeting.md`;
+    return `${FABRICATION_WARNING}[Previous Meeting Notes](${repoUrl}/blob/main/generated/meeting-notes/previous-meeting.md)`;
   }
 
   // General document template helper methods
@@ -1672,23 +1761,21 @@ Bad examples: "database", "mobile", "security" (too generic)`;
       stakeholders.add(contributor);
     });
 
-    // Add common stakeholder roles if no specific ones found
-    if (stakeholders.size === 0) {
-      return '- Project Manager\n- Development Team\n- Quality Assurance\n- Product Owner';
+    // If we have real stakeholders, use only those
+    if (stakeholders.size > 0) {
+      const stakeholderList = Array.from(stakeholders)
+        .map((stakeholder) => `- @${stakeholder}`)
+        .join('\n');
+      return stakeholderList;
     }
 
-    const stakeholderList = Array.from(stakeholders)
-      .map((stakeholder) => `- @${stakeholder}`)
-      .join('\n');
+    // Only add generic roles if we have NO real stakeholder data
+    if (!this.allowFabricatedContent) {
+      return '> 🚫 **FABRICATED STAKEHOLDER DATA DISABLED**: Real stakeholder information required.\n\n[Stakeholders to be identified]';
+    }
 
-    // Add role-based stakeholders
-    const additionalStakeholders = [
-      '- Product Owner',
-      '- Development Team',
-      '- Quality Assurance Team',
-    ];
-
-    return stakeholderList + '\n' + additionalStakeholders.join('\n');
+    const FABRICATION_WARNING = '> ⚠️ **GENERATED STAKEHOLDERS**: These roles are system-generated and require validation.\n\n';
+    return FABRICATION_WARNING + '- Project Manager\n- Development Team\n- Quality Assurance\n- Product Owner';
   }
 
   generateRecentUpdatesSection(data) {
@@ -1764,23 +1851,56 @@ Bad examples: "database", "mobile", "security" (too generic)`;
   // Additional stakeholder update template helper methods
   generateProgressSummary(data) {
     const progress = this.calculateProgress(data);
-    return `Project is currently ${progress}% complete. ${this.generateCurrentPhase(
-      data
-    )} phase is underway with good momentum.`;
+
+    // Only add % if we have actual progress data
+    if (progress > 0) {
+      return `Project is currently ${progress}% complete. ${this.generateCurrentPhase(
+        data
+      )} phase is underway with good momentum.`;
+    } else {
+      return `Project is in the ${this.generateCurrentPhase(
+        data
+      )} phase with good momentum.`;
+    }
+  }
+
+  calculateProgressValue(data) {
+    // Check if we have actual completion data
+    const completedPRs =
+      data.prs?.filter((pr) => pr.status === 'merged').length || 0;
+    const totalPRs = data.prs?.length || 0;
+    const completedIssues =
+      data.issues?.filter((issue) => issue.state === 'closed').length || 0;
+    const totalIssues = data.issues?.length || 0;
+
+    // If we have actual PR/issue data, calculate percentage
+    if (totalPRs > 0 || totalIssues > 0) {
+      const totalItems = totalPRs + totalIssues;
+      const completedItems = completedPRs + completedIssues;
+      const percentage = Math.round((completedItems / totalItems) * 100);
+      return `${percentage}%`;
+    }
+
+    // Otherwise, use descriptive status without percentage
+    return 'In Progress';
   }
 
   calculateProgress(data) {
-    // Simple progress calculation based on completed vs total items
+    // Return raw number for calculations
     const completedPRs =
       data.prs?.filter((pr) => pr.status === 'merged').length || 0;
-    const totalPRs = data.prs?.length || 1; // Avoid division by zero
+    const totalPRs = data.prs?.length || 0;
     const completedIssues =
       data.issues?.filter((issue) => issue.state === 'closed').length || 0;
-    const totalIssues = data.issues?.length || 1;
+    const totalIssues = data.issues?.length || 0;
 
-    const avgProgress =
-      (completedPRs / totalPRs + completedIssues / totalIssues) / 2;
-    return Math.round(avgProgress * 100);
+    if (totalPRs > 0 || totalIssues > 0) {
+      const totalItems = totalPRs + totalIssues;
+      const completedItems = completedPRs + completedIssues;
+      return Math.round((completedItems / totalItems) * 100);
+    }
+
+    return 0; // No data available
   }
 
   generateAccomplishments(data) {
@@ -1870,19 +1990,54 @@ Bad examples: "database", "mobile", "security" (too generic)`;
   }
 
   generateUpcomingItems(data) {
-    return '- 📋 Next sprint planning session\n- 📋 Security audit and review\n- 📋 Performance optimization tasks\n- 📋 User acceptance testing preparation';
+    const FABRICATION_WARNING =
+      '> ⚠️ **GENERATED CONTENT**: This information is system-generated and requires validation.\n\n';
+    return (
+      FABRICATION_WARNING +
+      '- 📋 Next sprint planning session\n- 📋 Security audit and review\n- 📋 Performance optimization tasks\n- 📋 User acceptance testing preparation'
+    );
   }
 
   generateRisksBlockers(data) {
-    return '- ⚠️  Dependencies on external systems\n- ⚠️  Resource allocation for upcoming milestones\n- ⚠️  Potential integration challenges';
+    // Check if fabricated risk content is allowed
+    if (!this.allowFabricatedContent) {
+      return '> 🚫 **FABRICATED RISK DATA DISABLED**: Configure actual risk tracking system or enable ALLOW_FABRICATED_CONTENT=true for development.\n\nRisk assessment requires input from project stakeholders and subject matter experts.';
+    }
+
+    const FABRICATION_WARNING =
+      '> ⚠️ **GENERATED CONTENT**: This information is system-generated and requires validation.\n\n';
+    return (
+      FABRICATION_WARNING +
+      '- ⚠️  Dependencies on external systems\n- ⚠️  Resource allocation for upcoming milestones\n- ⚠️  Potential integration challenges'
+    );
   }
 
   generateBudgetStatus(data) {
-    return 'Project is currently within budget parameters. No significant deviations from planned expenditure.';
+    // Check if fabricated financial content is allowed
+    if (!this.allowFabricatedContent) {
+      return '> 🚫 **FABRICATED FINANCIAL DATA DISABLED**: Configure actual budget tracking or enable ALLOW_FABRICATED_CONTENT=true for development.\n\nBudget status information requires manual input from finance team.';
+    }
+
+    const FABRICATION_WARNING =
+      '> 🚨 **FINANCIAL DATA GENERATED**: This financial information is system-generated and requires CFO/finance team validation before use in official reporting.\n\n';
+    return (
+      FABRICATION_WARNING +
+      'Project is currently within budget parameters. No significant deviations from planned expenditure.'
+    );
   }
 
   generateTimelineUpdates(data) {
-    return 'Project timeline remains on track. Milestones are being achieved according to schedule.';
+    // Check if fabricated timeline content is allowed
+    if (!this.allowFabricatedContent) {
+      return '> 🚫 **FABRICATED TIMELINE DATA DISABLED**: Configure actual project management integration or enable ALLOW_FABRICATED_CONTENT=true for development.\n\nTimeline information requires manual input from project manager.';
+    }
+
+    const FABRICATION_WARNING =
+      '> ⚠️ **TIMELINE DATA GENERATED**: This schedule information is system-generated and requires project manager validation.\n\n';
+    return (
+      FABRICATION_WARNING +
+      'Project timeline remains on track. Milestones are being achieved according to schedule.'
+    );
   }
 
   generateDecisionsNeeded(data) {
@@ -1906,7 +2061,7 @@ Bad examples: "database", "mobile", "security" (too generic)`;
       ? decisions
           .map((decision, index) => `${index + 1}. ${decision}`)
           .join('\n')
-      : '1. Approve next phase budget allocation\n2. Finalize integration strategy\n3. Set deployment timeline';
+      : '> ⚠️ **ACTION ITEMS GENERATED**: These decisions are system-generated and require stakeholder validation.\n\n1. Approve next phase budget allocation\n2. Finalize integration strategy\n3. Set deployment timeline';
   }
 
   generateNextUpdateDate() {
@@ -2267,6 +2422,64 @@ ${this.auditTrail.templateVariables.generated
             this.auditTrail.templateVariables.inferred.length +
             this.auditTrail.templateVariables.generated.length)) *
           100
+      )}%
+
+${
+  this.auditTrail.templateVariables.generated.length > 0
+    ? `
+## 🚨 FABRICATION AUDIT ALERT
+
+**⚠️ GENERATED CONTENT DETECTED:** This document contains ${
+        this.auditTrail.templateVariables.generated.length
+      } system-generated variables that may require validation:
+
+${this.auditTrail.templateVariables.generated
+  .map((v) => {
+    // Identify high-risk variables
+    const HIGH_RISK_VARS = [
+      'budgetStatus',
+      'risksBlockers',
+      'decisionsNeeded',
+      'upcomingItems',
+      'timelineUpdates',
+    ];
+    const riskLevel = HIGH_RISK_VARS.includes(v)
+      ? '🚨 **HIGH RISK**'
+      : '⚠️  Medium Risk';
+    return `- \`{${v}}\` - ${riskLevel}`;
+  })
+  .join('\n')}
+
+### Compliance Requirements
+- Documents with >30% generated content require manager approval
+- Financial/budget content requires CFO/finance team validation
+- Timeline claims require project manager confirmation
+- Action items require stakeholder validation
+
+### Next Steps
+1. Review all flagged generated content above
+2. Replace system-generated content with actual project data
+3. Obtain required approvals before official distribution
+4. Schedule validation meetings for high-risk generated content
+
+**Authenticity Rating:** ${
+        this.auditTrail.templateVariables.extracted.length /
+          (this.auditTrail.templateVariables.extracted.length +
+            this.auditTrail.templateVariables.inferred.length +
+            this.auditTrail.templateVariables.generated.length) >
+        0.7
+          ? '✅ HIGH (>70% extracted)'
+          : this.auditTrail.templateVariables.extracted.length /
+              (this.auditTrail.templateVariables.extracted.length +
+                this.auditTrail.templateVariables.inferred.length +
+                this.auditTrail.templateVariables.generated.length) >
+            0.5
+          ? '⚠️  MEDIUM (50-70% extracted)'
+          : '🚨 LOW (<50% extracted) - REQUIRES VALIDATION'
+      }
+`
+    : '✅ **NO FABRICATED CONTENT DETECTED** - All content extracted from source data'
+}
       )}% (Percentage of content directly extracted from sources)
 
 `
