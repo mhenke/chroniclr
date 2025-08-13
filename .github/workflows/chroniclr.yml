@@ -343,7 +343,11 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: '📚 Generate documentation via Chroniclr [skip ci]'
           title: "${{ format('📚 {0}{1}{2}{3}{4}', 
-            steps.discussion.outputs.title || 'Generated Documentation',
+            steps.discussion.outputs.title ||
+            (github.event.inputs.pr_numbers && 'PR Documentation') ||
+            (github.event.inputs.issue_numbers && 'Issues Documentation') || 
+            (github.event.inputs.jira_keys && 'Jira Documentation') ||
+            'Generated Documentation',
             steps.discussion.outputs.number && format(' (#{0})', steps.discussion.outputs.number) || '',
             github.event.inputs.pr_numbers && format(' • PR#{0}', github.event.inputs.pr_numbers) || '',
             github.event.inputs.issue_numbers && format(' • I#{0}', github.event.inputs.issue_numbers) || '',
