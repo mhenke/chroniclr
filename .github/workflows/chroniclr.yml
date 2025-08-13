@@ -30,7 +30,7 @@ on:
         required: false
         type: string
       source:
-        description: 'Data sources (comma-separated: discussion,issues,pr,jira)'
+        description: 'Data sources: discussion,pr,jira'
         required: false
         type: string
         default: 'discussion'
@@ -40,10 +40,6 @@ on:
         type: string
       jira_keys:
         description: 'Jira issue keys (comma-separated, e.g., "PROJ-123,PROJ-456")'
-        required: false
-        type: string
-      issue_numbers:
-        description: 'GitHub issue numbers (comma-separated, e.g., "123,456")'
         required: false
         type: string
 
@@ -342,17 +338,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: '📚 Generate documentation via Chroniclr [skip ci]'
-          title: "${{ format('📚 {0}{1}{2}{3}{4}', 
-            steps.discussion.outputs.title ||
-            (github.event.inputs.pr_numbers && 'PR Documentation') ||
-            (github.event.inputs.issue_numbers && 'Issues Documentation') || 
-            (github.event.inputs.jira_keys && 'Jira Documentation') ||
-            'Generated Documentation',
-            steps.discussion.outputs.number && format(' (#{0})', steps.discussion.outputs.number) || '',
-            github.event.inputs.pr_numbers && format(' • PR#{0}', github.event.inputs.pr_numbers) || '',
-            github.event.inputs.issue_numbers && format(' • I#{0}', github.event.inputs.issue_numbers) || '',
-            github.event.inputs.jira_keys && format(' • {0}', github.event.inputs.jira_keys) || ''
-          ) }}"
+          title: '📚 Chroniclr Documentation Update'
           body: |
             ## Automated Documentation Update
 
@@ -365,7 +351,6 @@ jobs:
             ${{ steps.discussion.outputs.number && format('- Discussion #{0}: {1}', steps.discussion.outputs.number, steps.discussion.outputs.title) || '' }}
             ${{ steps.discussion.outputs.author && format('- Author: @{0}', steps.discussion.outputs.author) || '' }}
             ${{ github.event.inputs.pr_numbers && format('- PRs: {0}', github.event.inputs.pr_numbers) || '' }}
-            ${{ github.event.inputs.issue_numbers && format('- Issues: {0}', github.event.inputs.issue_numbers) || '' }}
             ${{ github.event.inputs.jira_keys && format('- Jira: {0}', github.event.inputs.jira_keys) || '' }}
 
             ### Generated Files
