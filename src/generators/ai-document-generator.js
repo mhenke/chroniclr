@@ -233,17 +233,15 @@ class AIDocumentGenerator {
       // Collect data from all enabled sources
       const data = await this.collectDataFromSources();
       
-      // Generate each document type
-      const results = [];
-      for (const docType of docTypes) {
-        core.info(`Generating ${docType} document...`);
-        const result = await this.generateSingleDocument(docType, data);
-        if (result) {
-          results.push(result);
-        }
+      // Use batched generation for multiple documents to reduce API calls
+      if (docTypes.length > 1) {
+        core.info('Using batched generation to avoid rate limits...');
+        return await this.generateBatchedDocuments(docTypes, data);
+      } else {
+        // Single document generation
+        const result = await this.generateSingleDocument(docTypes[0], data);
+        return result ? [result] : [];
       }
-      
-      return results;
       
     } catch (error) {
       core.error(`Document generation failed: ${error.message}`);
@@ -272,22 +270,60 @@ class AIDocumentGenerator {
       }
 
       // Save document
-      const baseOutputDir = path.join(process.cwd(), 'generated');
-      const sourceFolder = await this.determineSourceFolder(data);
-      const outputDir = path.join(baseOutputDir, sourceFolder);
-      await fs.mkdir(outputDir, { recursive: true });
-      
-      const fileName = this.generateFileName(docType, data);
-      const filePath = path.join(outputDir, fileName);
-      
-      await fs.writeFile(filePath, finalContent, 'utf8');
-      
-      core.info(`✅ Generated document: ${fileName}`);
-      return { filePath, fileName, content: finalContent };
+      return await this.saveDocument(docType, data, finalContent);
 
     } catch (error) {
       core.error(`Single document generation failed for ${docType}: ${error.message}`);
       return null;
+    }
+  }
+
+  async generateBatchedDocuments(docTypes, data) {
+    try {
+      core.info(`Generating ${docTypes.length} documents in a single AI request...`);
+      
+      // Load all templates
+      const templates = {};
+      for (const docType of docTypes) {
+        templates[docType] = await this.loadTemplate(docType);
+      }
+      
+      // Create batched AI prompt
+      const prompt = this.createBatchedAIPrompt(docTypes, data, templates);
+      
+      // Generate all content with single AI call
+      const aiContent = await this.generateCompletion(prompt);
+      
+      if (!aiContent) {
+        core.warning('Batched AI generation failed, falling back to individual templates');
+        return await this.generateFallbackDocuments(docTypes, data, templates);
+      }
+      
+      // Parse the batched response
+      const parsedDocuments = this.parseBatchedResponse(aiContent, docTypes);
+      
+      // Save each document
+      const results = [];
+      for (const docType of docTypes) {
+        const content = parsedDocuments[docType] || this.createFallbackContent(docType, data, templates[docType]);
+        const result = await this.saveDocument(docType, data, content);
+        if (result) {
+          results.push(result);
+        }
+      }
+      
+      return results;
+      
+    } catch (error) {
+      core.error(`Batched generation failed: ${error.message}`);
+      core.info('Falling back to individual template generation...');
+      
+      // Fallback to template-only generation
+      const templates = {};
+      for (const docType of docTypes) {
+        templates[docType] = await this.loadTemplate(docType);
+      }
+      return await this.generateFallbackDocuments(docTypes, data, templates);
     }
   }
 
@@ -412,6 +448,110 @@ class AIDocumentGenerator {
   generateBasicSummary(data) {
     const totalItems = (data.discussion ? 1 : 0) + data.prs.length + data.issues.length + data.jiraIssues.length;
     return `Processed ${totalItems} items from ${data.sources.join(', ')} sources.`;
+  }
+
+  createBatchedAIPrompt(docTypes, data, templates) {
+    let prompt = `Generate ${docTypes.length} different document types in a single response using the following data sources:\n\n`;
+    
+    // Add data sources
+    if (data.discussion) {
+      prompt += `## Discussion Data\n`;
+      prompt += `Title: ${data.discussion.title}\n`;
+      prompt += `Author: ${data.discussion.author}\n`;
+      prompt += `Content:\n${data.discussion.body}\n\n`;
+    }
+    
+    if (data.prs.length > 0) {
+      prompt += `## Pull Requests (${data.prs.length})\n`;
+      data.prs.forEach(pr => {
+        prompt += `- PR #${pr.number}: ${pr.title} (${pr.author})\n`;
+      });
+      prompt += `\n`;
+    }
+    
+    if (data.issues.length > 0) {
+      prompt += `## GitHub Issues (${data.issues.length})\n`;
+      data.issues.forEach(issue => {
+        prompt += `- Issue #${issue.number}: ${issue.title} (${issue.author})\n`;
+      });
+      prompt += `\n`;
+    }
+    
+    if (data.jiraIssues.length > 0) {
+      prompt += `## Jira Issues (${data.jiraIssues.length})\n`;
+      data.jiraIssues.forEach(issue => {
+        prompt += `- ${issue.key}: ${issue.summary}\n`;
+      });
+      prompt += `\n`;
+    }
+    
+    prompt += `Please generate the following ${docTypes.length} documents. Use the format:\n\n`;
+    prompt += `=== DOCUMENT_TYPE_NAME ===\n[content]\n=== END_DOCUMENT_TYPE_NAME ===\n\n`;
+    
+    docTypes.forEach(docType => {
+      prompt += `Required document: ${docType}\n`;
+      prompt += `Template structure for ${docType}:\n${templates[docType]}\n\n`;
+    });
+    
+    return prompt;
+  }
+
+  parseBatchedResponse(aiContent, docTypes) {
+    const documents = {};
+    
+    docTypes.forEach(docType => {
+      const startMarker = `=== ${docType.toUpperCase()} ===`;
+      const endMarker = `=== END_${docType.toUpperCase()} ===`;
+      
+      const startIndex = aiContent.indexOf(startMarker);
+      const endIndex = aiContent.indexOf(endMarker);
+      
+      if (startIndex !== -1 && endIndex !== -1) {
+        const content = aiContent.substring(startIndex + startMarker.length, endIndex).trim();
+        documents[docType] = content;
+        core.info(`✅ Parsed ${docType} document from batched response`);
+      } else {
+        core.warning(`❌ Could not parse ${docType} from batched response`);
+      }
+    });
+    
+    return documents;
+  }
+
+  async generateFallbackDocuments(docTypes, data, templates) {
+    const results = [];
+    
+    for (const docType of docTypes) {
+      core.info(`Generating fallback ${docType} document using template...`);
+      const content = this.createFallbackContent(docType, data, templates[docType]);
+      const result = await this.saveDocument(docType, data, content);
+      if (result) {
+        results.push(result);
+      }
+    }
+    
+    return results;
+  }
+
+  async saveDocument(docType, data, content) {
+    try {
+      const baseOutputDir = path.join(process.cwd(), 'generated');
+      const sourceFolder = await this.determineSourceFolder(data);
+      const outputDir = path.join(baseOutputDir, sourceFolder);
+      await fs.mkdir(outputDir, { recursive: true });
+      
+      const fileName = this.generateFileName(docType, data);
+      const filePath = path.join(outputDir, fileName);
+      
+      await fs.writeFile(filePath, content, 'utf8');
+      
+      core.info(`✅ Generated document: ${fileName}`);
+      return { filePath, fileName, content };
+      
+    } catch (error) {
+      core.error(`Failed to save ${docType} document: ${error.message}`);
+      return null;
+    }
   }
 }
 
