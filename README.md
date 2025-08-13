@@ -1,17 +1,17 @@
-# Chroniclr - AI-Powered Documentation & Communication Automation
+# Chroniclr - AI-Powered Documentation Automation
 
-> GitHub Actions-driven documentation and stakeholder communication generation from discussions, issues, PRs, and Jira. Simple setup, zero maintenance, focused on essential project communication.
+> GitHub Actions-driven documentation generation from discussions, issues, PRs, and Jira. Simple setup, zero maintenance, focused on essential project documentation.
 
 ## Overview
 
-Chroniclr automates project documentation and stakeholder communications using GitHub Actions and AI. It processes GitHub discussions, issues, pull requests, and Jira data to generate comprehensive project documentation and communication materials automatically.
+Chroniclr automates project documentation using GitHub Actions and AI. It processes GitHub discussions, issues, pull requests, and Jira data to generate structured project documentation automatically.
 
-### 🤖 **AI-Powered Generation**
+### 🤖 **Simple AI Generation**
 
 - Uses GitHub Models API (GPT-4o) - **no API keys required**
-- Processes full threads and cross-references related content
-- Smart content prioritization based on engagement
-- Automatic action item extraction and GitHub issue creation
+- Processes content from multiple sources
+- Template-based generation with AI enhancement
+- Fallback to structured templates when AI unavailable
 
 ### 📊 **Data Sources**
 
@@ -20,13 +20,11 @@ Chroniclr automates project documentation and stakeholder communications using G
 - **Pull Requests** - Code changes, releases, technical documentation
 - **Jira Integration** - Sprint data, epics, project metrics
 
-### 📚 **Generated Documents & Communications**
+### 📚 **Generated Documents**
 
 - Project summaries and meeting notes
 - Initiative briefs and technical documentation
-- Release notes and change impact assessments
-- Stakeholder communications and team notifications
-- Release communications and status updates
+- Release notes and changelogs
 
 ## Quick Start
 
@@ -41,17 +39,15 @@ cd chroniclr
 npm install
 ```
 
-### 2. (Optional) Configure Jira Environment Variables
+### 2. Configure GitHub Secrets (Optional Jira Integration)
 
-If you want to enable Jira integration, create or update a `.env` file with the following:
+For Jira integration, add these secrets to your GitHub repository (Settings → Secrets and variables → Actions):
 
-```bash
-# Only required for Jira integration
-JIRA_BASE_URL=https://yourcompany.atlassian.net
-JIRA_USER_EMAIL=bot@yourcompany.com
-JIRA_API_TOKEN=your-jira-token
-JIRA_PROJECT=PROJ
-```
+- `JIRA_BASE_URL` (e.g. `https://yourcompany.atlassian.net`)
+- `JIRA_USER_EMAIL` (e.g. `bot@yourcompany.com`)
+- `JIRA_API_TOKEN` (your Jira API token)
+
+**Note:** No `.env` file needed - everything runs via GitHub Actions with secrets.
 
 ### 3. Configure Repository Permissions
 
@@ -68,43 +64,48 @@ permissions:
 
 ### 4. Run Documentation Generation
 
-The system works automatically with GitHub Actions. The main workflow file is `update-docs.yml`:
+The system works automatically with GitHub Actions via `chroniclr.yml` workflow:
 
 ```bash
 # Process specific discussion
-gh workflow run update-docs.yml -f discussion_number=123
+gh workflow run chroniclr.yml -f discussion_number=123
 
 # Process specific issues
-gh workflow run update-docs.yml -f issue_numbers=456,789
+gh workflow run chroniclr.yml -f issue_numbers=456,789
 
 # Process pull requests
-gh workflow run update-docs.yml -f pr_numbers=101,102
+gh workflow run chroniclr.yml -f pr_numbers=101,102
 
 # Include Jira data
-gh workflow run update-docs.yml -f jira_keys=PROJ-123,FEAT-456
+gh workflow run chroniclr.yml -f jira_keys=PROJ-123,FEAT-456
 
 # Multi-source processing
-gh workflow run update-docs.yml -f discussion_number=123 -f pr_numbers=456 -f jira_keys=PROJ-789
+gh workflow run chroniclr.yml -f discussion_number=123 -f pr_numbers=456 -f jira_keys=PROJ-789
 ```
 
 ## How It Works
 
-### Automated Pipeline
+### Simple Pipeline
 
 1. **GitHub Actions** triggers on discussion/PR events or manual dispatch
-2. **Content Collection** gathers data from specified sources
-3. **AI Processing** analyzes content using GitHub Models API
-4. **Document Generation** creates structured documentation
-5. **Action Item Processing** creates GitHub issues for tasks
-6. **PR Creation** opens pull request with generated content
+2. **Content Collection** gathers data from specified sources (discussion, issues, PRs, Jira)
+3. **AI Processing** analyzes content using GitHub Models API with template fallbacks
+4. **Document Generation** creates structured documentation in organized folders
+5. **PR Creation** opens pull request with generated content
 
-### Document Types by Source
+### Document Organization
 
-- **Discussions**: Project summaries, initiative briefs, meeting notes
-- **Issues**: Bug analysis, feature tracking, milestone reports
-- **Pull Requests**: Release notes, change impact assessments
-- **Jira**: Sprint reports, epic summaries, project dashboards
-- **Multi-Source**: Cross-platform correlation and comprehensive intelligence
+Generated documents are organized in the `generated/` folder using AI-powered topic extraction:
+- `generated/2025-01-13-auth-system/` - Authentication-related documentation
+- `generated/2025-01-14-mobile-ui/` - Mobile UI improvements  
+- `generated/2025-01-15-bug-fixes/` - Bug fixes and patches
+
+### Document Types
+
+- **Summary** - Project overviews and status updates
+- **Initiative Brief** - Feature proposals and project plans  
+- **Meeting Notes** - Discussion summaries and decisions
+- **Changelog** - Release notes and version changes
 
 ## Configuration
 
@@ -119,33 +120,28 @@ Discussion labels determine document types via `chroniclr.config.json`:
 
 ### Jira Integration (Optional)
 
-To enable Jira integration, add the following secrets to your GitHub repository (Settings → Secrets and variables → Actions):
+Jira integration is handled via GitHub Secrets - no local configuration needed:
 
-- `JIRA_BASE_URL` (e.g. `https://yourcompany.atlassian.net`)
-- `JIRA_USER_EMAIL` (e.g. `bot@yourcompany.com`)
-- `JIRA_API_TOKEN` (your Jira API token)
-- `JIRA_PROJECT` (your Jira project key, e.g. `PROJ`)
+- `JIRA_BASE_URL` - Your Atlassian instance URL
+- `JIRA_USER_EMAIL` - Bot account email  
+- `JIRA_API_TOKEN` - API token for authentication
 
-If these secrets are not set, Chroniclr will skip Jira integration automatically. No changes to the workflow are needed—just add or remove the secrets as needed.
+If secrets are not configured, Jira integration is automatically skipped.
 
-**What Jira integration enables:**
+## Architecture Principles
 
-- Sprint reports, epic summaries, and project dashboards from Jira
-- Cross-referenced documentation with GitHub issues, PRs, and discussions
+Chroniclr follows these core principles to avoid over-complexity:
 
-**Note:** You do not need a `.env` file for production; all configuration should be done via GitHub Actions secrets.
+### GitHub Actions Only
+- No local CLI tools or complex setup
+- All processing happens in GitHub Actions
+- Simple workflow triggers and manual dispatch
 
-## Communication Types
-
-Chroniclr generates various types of communications based on discussion labels:
-
-### Available Communication Types
-
-- **release-communication** - Stakeholder notifications for releases
-- **stakeholder-update** - Progress updates for project stakeholders
-- **team-notification** - Team-specific announcements and updates
-- **meeting-notes** - Structured meeting summaries
-- **initiative-brief** - Project initiative documentation
+### Keep Solutions Simple  
+- Avoid over-engineering and unnecessary abstractions
+- Use template-based generation with AI enhancement
+- Fallback to structured templates when AI fails
+- Minimal dependencies and straightforward data flow
 
 ## File Structure
 
@@ -192,24 +188,24 @@ npm run generate-document
 
 ## Features Summary
 
-### 🚀 **Zero Configuration**
+### 🚀 **Simple Setup**
 
 - Works with GitHub's built-in permissions and Models API
 - No external API keys required (except optional Jira)
-- Automatic setup with minimal configuration
+- GitHub Actions-only operation
 
-### 🤖 **AI-Powered Intelligence**
+### 🤖 **Reliable Generation**
 
-- Full content analysis across all sources
-- Smart communication generation for different stakeholder groups
-- Cross-platform correlation and relationship detection
+- Template-based generation with AI enhancement
+- Automatic fallback when AI unavailable
+- Multi-source data processing
 
-### 📋 **Production Ready**
+### 📋 **Organized Output**
 
-- Robust error handling and retry logic
-- Rate limiting and API compliance
-- Comprehensive logging and monitoring
+- AI-powered topic extraction for folder organization
+- Date-based chronological structure
+- Clear document type separation
 
 ---
 
-**Transform your GitHub repository into a comprehensive documentation and communication system with zero maintenance required!**
+**Transform your GitHub repository into a simple, automated documentation system via GitHub Actions!**

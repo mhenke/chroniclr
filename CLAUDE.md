@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Chroniclr** is an AI-powered documentation and communication automation system that generates project documentation and stakeholder communications from GitHub discussions, issues, pull requests, and Jira. The system operates **exclusively through GitHub Actions** with AI-powered generation using GitHub Models API.
+**Chroniclr** is a simple AI-powered documentation automation system that generates project documentation from GitHub discussions, issues, pull requests, and Jira. The system operates **exclusively through GitHub Actions** with AI-powered generation using GitHub Models API.
 
 ## Core Principles
 
@@ -24,12 +24,12 @@ The system processes 4 data sources:
 - `pr` - Pull Requests with file analysis and Jira key extraction  
 - `jira` - Jira integration via GitHub Secrets
 
-### AI-Powered Document & Communication Generation
+### Simple AI-Powered Document Generation
 - **GitHub Models API** (GPT-4o) for content generation - no external API keys required
 - **Simple API clients** for data fetching (no complex discovery engines)
-- **Template-based generation** with AI enhancement for documentation and communications
-- **Request queuing** with retry logic for reliability
-- **Stakeholder communications** for releases, updates, and notifications
+- **Template-based generation** with AI enhancement
+- **Automatic fallback** to structured templates when AI fails
+- **Basic retry logic** for API reliability
 
 ### AI-Powered Output Organization  
 Generated documents are organized in `generated/` folder with AI-generated date-topic structure:
@@ -66,9 +66,9 @@ The workflow in `.github/workflows/chroniclr.yml` expects these secrets:
 ### Simple Workflow Architecture
 1. **Validation** - Ensure required parameters are provided
 2. **Data Collection** - Simple API clients fetch data from specified sources  
-3. **AI Generation** - GitHub Models API generates documents and communications using templates
+3. **AI Generation** - GitHub Models API generates documents using templates with fallbacks
 4. **AI Organization** - Content analyzed to generate topic-based folder structure
-5. **PR Creation** - Documents committed with branch naming `docs/chroniclr-{run-number}`
+5. **PR Creation** - Documents committed with branch naming `docs/chroniclr-{parameters}`
 
 Generated files follow pattern: `docs/{doc-type}-{source-id}.md` in AI-organized folders
 
@@ -86,14 +86,13 @@ chroniclr/
 │       ├── pr-client.js        # GitHub PR API client
 │       ├── issues-client.js    # GitHub Issues API client  
 │       ├── jira-client.js      # Jira API client
-│       └── request-queue.js    # Rate limiting
 ├── docs/                       # Chroniclr project documentation
 ├── generated/                  # AI-organized generated documentation  
 │   ├── 2025-01-13-auth-system/ # AI topic folders
 │   ├── 2025-01-14-mobile-ui/
 │   └── README.md               # Organization guide
 ├── chroniclr.config.json       # Label mappings
-└── package.json               # 4 essential npm scripts only
+└── package.json               # 3 essential npm scripts only
 ```
 
 ## Template Development
@@ -140,9 +139,9 @@ When modifying templates in `src/templates/`:
 - Smart topic generation from content analysis
 
 **Production Ready**
-- Rate limiting with request queuing
-- Comprehensive retry logic with exponential backoff  
+- Basic retry logic with exponential backoff  
 - Graceful error handling and logging
 - GitHub Actions native integration
+- Template fallbacks for reliability
 
 Remember: If you find yourself adding complexity, step back and find the simpler solution that works within GitHub Actions.

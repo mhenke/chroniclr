@@ -22,7 +22,7 @@ Topics are generated using AI analysis of all content:
 - **Jira summaries** - "Payment gateway integration" → `payment`
 
 Topics are:
-- ✅ 1-2 words maximum (scannable)
+- ✅ 1-3 words maximum (scannable)
 - ✅ Lowercase with hyphens  
 - ✅ Generated from content, not data source
 - ✅ Automatically versioned if conflicts exist

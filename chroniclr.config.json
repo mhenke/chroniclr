@@ -1,195 +1,25 @@
 {
   "project": {
     "name": "chroniclr",
-    "description": "AI-powered documentation automation system",
+    "description": "Simple AI-powered documentation automation system",
     "version": "1.0.0"
   },
   "github": {
-    "repository": "",
-    "owner": "",
-    "defaultBranch": "main",
     "discussionLabels": {
       "documentation": ["summary", "meeting-notes"],
       "initiative": ["initiative-brief"],
-      "release": ["changelog", "release-communication"],
+      "release": ["changelog"],
       "feature": ["initiative-brief", "summary"],
-      "planning": ["meeting-notes", "summary"],
-      "communication": ["stakeholder-update"],
-      "notification": ["team-notification"],
-      "pr-summary": ["pr-summary"],
-      "pr-impact": ["pr-change-impact-assessment"],
-      "pr-review": ["pr-review-report"],
-      "pr-validation": ["pr-validation-checklist"],
-      "pr-release": ["pr-release-notes"]
+      "planning": ["meeting-notes", "summary"]
     }
   },
   "documents": {
-    "outputDir": "docs",
+    "outputDir": "generated",
     "templates": {
       "summary": "src/templates/summary.md",
       "initiative-brief": "src/templates/initiative-brief.md",
       "changelog": "src/templates/changelog.md",
-      "meeting-notes": "src/templates/meeting-notes.md",
-      "release-communication": "src/templates/release-communication.md",
-      "stakeholder-update": "src/templates/stakeholder-update.md",
-      "team-notification": "src/templates/team-notification.md",
-      "sprint-report": "src/templates/sprint-report.md",
-      "epic-summary": "src/templates/epic-summary.md",
-      "project-dashboard": "src/templates/project-dashboard.md",
-      "release-notes": "src/templates/release-notes.md",
-      "pr-summary": "src/templates/pr-summary.md",
-      "pr-change-impact-assessment": "src/templates/pr-change-impact-assessment.md",
-      "pr-review-report": "src/templates/pr-review-report.md",
-      "pr-validation-checklist": "src/templates/pr-validation-checklist.md",
-      "pr-release-notes": "src/templates/pr-release-notes.md"
-    },
-    "autoGenerate": true,
-    "createPR": true,
-    "autoMerge": false
-  },
-  "ai": {
-    "provider": "github-models",
-    "model": "gpt-4o",
-    "endpoint": "https://models.github.ai/inference",
-    "maxTokens": 4000,
-    "temperature": 0.3
-  },
-  "jira": {
-    "enabled": true,
-    "baseUrl": "JIRA_BASE_URL",
-    "defaultProject": "JIRA_PROJECT",
-    "authentication": {
-      "userEmail": "JIRA_USER_EMAIL",
-      "apiTokenSecret": "JIRA_API_TOKEN"
-    },
-    "documentTypes": {
-      "sprint-report": ["sprint", "development"],
-      "epic-summary": ["epic", "initiative"],
-      "project-dashboard": ["dashboard", "management"],
-      "release-notes": ["release", "deployment"]
-    },
-    "queries": {
-      "currentSprint": "project = '{project}' AND sprint in openSprints() ORDER BY priority DESC",
-      "completedEpic": "project = '{project}' AND type = Epic AND status = Done AND updatedDate >= -{days}d",
-      "blockedIssues": "project = '{project}' AND status = Blocked ORDER BY priority DESC",
-      "recentlyCompleted": "project = '{project}' AND status = Done AND updatedDate >= -{days}d ORDER BY updatedDate DESC",
-      "upcomingWork": "project = '{project}' AND sprint in futureSprints() ORDER BY priority DESC"
-    },
-    "rateLimiting": {
-      "requestsPerMinute": 100,
-      "retryAttempts": 3,
-      "backoffMultiplier": 2
-    },
-    "caching": {
-      "enabled": true,
-      "ttlMinutes": 15
+      "meeting-notes": "src/templates/meeting-notes.md"
     }
-  },
-  "issues": {
-    "defaultLabels": ["action-item", "chroniclr-generated", "needs-triage"],
-    "enablePriorityLabels": true,
-    "enableHashtagLabels": true,
-    "discovery": {
-      "enabled": true,
-      "modules": {
-        "keywordDiscovery": { "enabled": true },
-        "labelDiscovery": { "enabled": true },
-        "milestoneDiscovery": { "enabled": true },
-        "authorDiscovery": { "enabled": true },
-        "crossReferenceDiscovery": { "enabled": true },
-        "relatedIssuesDiscovery": { "enabled": true }
-      },
-      "filters": {
-        "excludeLabels": ["wontfix", "duplicate", "invalid"],
-        "excludeAuthors": ["dependabot[bot]"],
-        "includeStates": ["open", "closed"],
-        "maxAge": "6m"
-      }
-    }
-  },
-  "pullRequests": {
-    "enabled": false,
-    "modules": {
-      "prAnalysis": {
-        "enabled": false,
-        "triggers": ["opened", "closed", "synchronize"]
-      },
-      "mergedPrProcessing": {
-        "enabled": false,
-        "autoReleaseNotes": false,
-        "autoChangelogUpdate": false,
-        "autoDocumentationUpdate": false
-      },
-      "fileChangeAnalysis": {
-        "enabled": false,
-        "riskAssessment": false,
-        "impactDetection": false,
-        "testingRecommendations": false
-      },
-      "jiraIntegration": {
-        "enabled": false,
-        "extractKeysFromPr": false,
-        "crossReference": false
-      },
-      "releaseManagement": {
-        "enabled": false,
-        "autoUpdateIssues": false,
-        "releaseIssueLabel": "release-notes",
-        "changelogFormat": "compact"
-      },
-      "stakeholderNotifications": {
-        "enabled": false,
-        "notifyTeams": false,
-        "generateReports": false
-      }
-    }
-  },
-  "correlation": {
-    "enabled": false,
-    "autoDetection": true,
-    "crossReferenceAnalysis": true,
-    "timelineGeneration": true
-  },
-  "discovery": {
-    "enabled": true,
-    "crossPlatformCorrelation": true,
-    "semanticLinking": true,
-    "maxDiscoveries": 20,
-    "confidenceThreshold": 0.6,
-    "strategies": {
-      "discussions": {
-        "titleKeywords": true,
-        "bodyContent": true,
-        "participantAnalysis": true,
-        "reactionAnalysis": true
-      },
-      "issues": {
-        "labelMatching": true,
-        "milestoneTracking": true,
-        "assigneeCorrelation": true,
-        "commentAnalysis": true
-      },
-      "pullRequests": {
-        "jiraKeyExtraction": true,
-        "branchAnalysis": true,
-        "commitMessageScanning": true,
-        "fileChangeCorrelation": true
-      },
-      "jira": {
-        "projectKeyMapping": true,
-        "epicCorrelation": true,
-        "sprintTracking": true
-      }
-    }
-  },
-  "workflow": {
-    "triggers": [
-      "discussion_created",
-      "discussion_edited",
-      "pull_request_merged"
-    ],
-    "requiredApprovals": 1,
-    "branchPrefix": "docs/chroniclr-",
-    "commitMessage": "📚 Update documentation via Chroniclr"
   }
 }
