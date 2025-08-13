@@ -108,14 +108,15 @@ class AIDocumentGenerator {
               .text()
               .catch(() => 'Unknown error');
 
-            // Check for daily rate limit first
+            // Check for daily rate limit and show actual API error message
             if (
               response.status === 429 &&
               errorText.includes('UserByModelByDay')
             ) {
               this.rateLimitExceeded = true;
-              core.error(
-                `🚫 Daily rate limit exceeded (50 requests/24h). No further AI calls will be made.`
+              core.error(`🚫 GitHub Models API: ${errorText}`);
+              core.info(
+                '� Switching to template-only generation for remaining operations'
               );
               return null;
             }
@@ -152,9 +153,7 @@ class AIDocumentGenerator {
               errorText.includes('UserByModelByDay')
             ) {
               this.rateLimitExceeded = true;
-              core.error(
-                `🚫 Daily rate limit exceeded (50 requests/24h). Switching to template-only mode for remaining operations.`
-              );
+              core.error(`🚫 GitHub Models API: ${errorText}`);
             }
 
             core.error(
@@ -506,14 +505,26 @@ class AIDocumentGenerator {
 
         // Show rate limit warning if applicable
         if (this.rateLimitExceeded) {
-          core.warning(
-            '⚠️  Daily API rate limit (50 requests/24h) was exceeded during generation.'
-          );
+          if (this.isPaidPlan) {
+            core.warning(
+              '⚠️  Daily API rate limit was exceeded on your paid plan during generation.'
+            );
+            core.warning(
+              '� This is unusual for paid plans. Check your billing dashboard and consider opening a support ticket.'
+            );
+          } else {
+            core.warning(
+              '⚠️  Daily API rate limit (50 requests/24h) was exceeded during generation.'
+            );
+            core.warning(
+              '🔄 Rate limit resets in 24 hours. AI enhancement will resume then.'
+            );
+            core.warning(
+              '💰 Consider upgrading to GitHub Models paid plan for much higher limits.'
+            );
+          }
           core.warning(
             '📝 Documents were generated using template fallbacks to ensure completion.'
-          );
-          core.warning(
-            '🔄 Rate limit resets in 24 hours. AI enhancement will resume then.'
           );
         }
       }
