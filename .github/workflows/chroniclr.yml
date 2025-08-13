@@ -213,7 +213,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: '📚 Generate documentation via Chroniclr'
-          title: '📚 Update documentation via Chroniclr'
+          title: "${{ format('📚 {0}', steps.discussion.outputs.title || 'Update documentation via Chroniclr') }}"
           body: |
             ## Automated Documentation Update
 
