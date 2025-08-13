@@ -1,393 +1,211 @@
 #!/usr/bin/env node
 
 /**
- * Jira API Client for Chroniclr
- * Provides authenticated access to Jira REST API for data extraction
+ * Simplified Jira API Client
+ * Handles basic Jira data fetching using GitHub Secrets
  */
 
 const core = require('@actions/core');
-const fs = require('fs');
-const path = require('path');
 
 class JiraClient {
   constructor() {
-    this.config = this.loadConfiguration();
-    this.cache = new Map();
-    this.rateLimiter = this.initializeRateLimiter();
-  }
-
-  loadConfiguration() {
-    try {
-      const configPath = path.join(process.cwd(), 'chroniclr.config.json');
-      const configData = fs.readFileSync(configPath, 'utf8');
-      const config = JSON.parse(configData);
-      
-      if (!config.jira || !config.jira.enabled) {
-        return null;
-      }
-
-      // Validate required configuration
-      if (!config.jira.baseUrl || !config.jira.defaultProject) {
-        core.warning('Jira integration enabled but missing baseUrl or defaultProject');
-        return null;
-      }
-
-      return config.jira;
-    } catch (error) {
-      core.warning(`Failed to load Jira configuration: ${error.message}`);
-      return null;
-    }
-  }
-
-  initializeRateLimiter() {
-    if (!this.config) return null;
-
-    const { requestsPerMinute = 100 } = this.config.rateLimiting || {};
-    const intervalMs = 60000 / requestsPerMinute;
-
-    return {
-      requestsPerMinute,
-      intervalMs,
-      lastRequestTime: 0,
-      queue: []
-    };
-  }
-
-  async sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
-
-  async enforceRateLimit() {
-    if (!this.rateLimiter) return;
-
-    const now = Date.now();
-    const timeSinceLastRequest = now - this.rateLimiter.lastRequestTime;
+    this.baseUrl = process.env.JIRA_BASE_URL;
+    this.userEmail = process.env.JIRA_USER_EMAIL;
+    this.apiToken = process.env.JIRA_API_TOKEN;
+    this.project = process.env.JIRA_PROJECT;
     
-    if (timeSinceLastRequest < this.rateLimiter.intervalMs) {
-      const waitTime = this.rateLimiter.intervalMs - timeSinceLastRequest;
-      core.info(`Rate limiting: waiting ${waitTime}ms`);
-      await this.sleep(waitTime);
+    // Validate required environment variables
+    if (!this.baseUrl || !this.userEmail || !this.apiToken || !this.project) {
+      core.warning('Jira integration requires JIRA_BASE_URL, JIRA_USER_EMAIL, JIRA_API_TOKEN, and JIRA_PROJECT in GitHub Secrets');
+      this.enabled = false;
+      return;
     }
     
-    this.rateLimiter.lastRequestTime = Date.now();
+    this.enabled = true;
+    this.authHeader = this.createAuthHeader();
   }
 
-  getAuthHeaders() {
-    if (!this.config) return {};
+  createAuthHeader() {
+    const auth = Buffer.from(`${this.userEmail}:${this.apiToken}`).toString('base64');
+    return `Basic ${auth}`;
+  }
 
-    const apiToken = process.env[this.config.authentication.apiTokenSecret] || process.env.JIRA_API_TOKEN;
-    const userEmail = this.config.authentication.userEmail || process.env.JIRA_USER_EMAIL;
-
-    if (!apiToken || !userEmail) {
-      throw new Error('Jira authentication credentials not found. Set JIRA_API_TOKEN and JIRA_USER_EMAIL environment variables.');
+  /**
+   * Fetch Jira issues by keys
+   */
+  async fetchJiraIssues(jiraKeys) {
+    if (!this.enabled || !jiraKeys || !jiraKeys.length) {
+      return [];
     }
 
-    const auth = Buffer.from(`${userEmail}:${apiToken}`).toString('base64');
+    const issues = [];
     
-    return {
-      'Authorization': `Basic ${auth}`,
-      'Accept': 'application/json',
-      'Content-Type': 'application/json'
-    };
-  }
-
-  getCacheKey(endpoint, params = {}) {
-    const paramString = JSON.stringify(params);
-    return `${endpoint}:${paramString}`;
-  }
-
-  getCachedData(cacheKey) {
-    if (!this.config?.caching?.enabled) return null;
-    
-    const cached = this.cache.get(cacheKey);
-    if (!cached) return null;
-
-    const ttlMs = (this.config.caching.ttlMinutes || 15) * 60 * 1000;
-    const isExpired = Date.now() - cached.timestamp > ttlMs;
-    
-    if (isExpired) {
-      this.cache.delete(cacheKey);
-      return null;
-    }
-
-    core.info(`Using cached data for ${cacheKey}`);
-    return cached.data;
-  }
-
-  setCachedData(cacheKey, data) {
-    if (!this.config?.caching?.enabled) return;
-    
-    this.cache.set(cacheKey, {
-      data,
-      timestamp: Date.now()
-    });
-  }
-
-  async makeRequest(endpoint, params = {}) {
-    if (!this.config) {
-      throw new Error('Jira integration not configured or disabled');
-    }
-
-    const cacheKey = this.getCacheKey(endpoint, params);
-    const cachedData = this.getCachedData(cacheKey);
-    if (cachedData) {
-      return cachedData;
-    }
-
-    await this.enforceRateLimit();
-
-    const url = `${this.config.baseUrl}/rest/api/2/${endpoint}`;
-    const queryString = new URLSearchParams(params).toString();
-    const fullUrl = queryString ? `${url}?${queryString}` : url;
-
-    const { retryAttempts = 3, backoffMultiplier = 2 } = this.config.rateLimiting || {};
-    
-    for (let attempt = 0; attempt < retryAttempts; attempt++) {
+    for (const jiraKey of jiraKeys) {
       try {
-        core.info(`Making Jira API request: ${endpoint} (attempt ${attempt + 1}/${retryAttempts})`);
+        core.info(`Fetching Jira issue: ${jiraKey}`);
         
-        const response = await fetch(fullUrl, {
-          method: 'GET',
-          headers: this.getAuthHeaders()
+        const response = await fetch(`${this.baseUrl}/rest/api/3/issue/${jiraKey}`, {
+          headers: {
+            'Authorization': this.authHeader,
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+          }
         });
 
-        if (response.status === 429) {
-          const retryAfter = response.headers.get('retry-after') || Math.pow(backoffMultiplier, attempt) * 1000;
-          core.warning(`Rate limited by Jira API. Retrying after ${retryAfter}ms`);
-          await this.sleep(parseInt(retryAfter));
+        if (!response.ok) {
+          core.error(`Failed to fetch ${jiraKey}: ${response.status} ${response.statusText}`);
           continue;
         }
 
-        if (!response.ok) {
-          const errorBody = await response.text();
-          throw new Error(`Jira API error: ${response.status} ${response.statusText} - ${errorBody}`);
-        }
+        const issue = await response.json();
 
-        const data = await response.json();
-        this.setCachedData(cacheKey, data);
-        return data;
+        issues.push({
+          key: issue.key,
+          summary: issue.fields.summary,
+          description: issue.fields.description || '',
+          status: issue.fields.status.name,
+          issueType: issue.fields.issuetype.name,
+          priority: issue.fields.priority?.name || 'None',
+          assignee: issue.fields.assignee?.displayName || 'Unassigned',
+          reporter: issue.fields.reporter?.displayName || 'Unknown',
+          created: issue.fields.created,
+          updated: issue.fields.updated,
+          resolved: issue.fields.resolutiondate,
+          project: issue.fields.project.key,
+          url: `${this.baseUrl}/browse/${issue.key}`,
+          labels: issue.fields.labels || [],
+          components: issue.fields.components?.map(comp => comp.name) || [],
+          fixVersions: issue.fields.fixVersions?.map(ver => ver.name) || []
+        });
+
+        core.info(`✅ Fetched Jira issue: ${jiraKey} - "${issue.fields.summary}"`);
 
       } catch (error) {
-        if (attempt === retryAttempts - 1) {
-          throw error;
-        }
-        
-        const waitTime = Math.pow(backoffMultiplier, attempt) * 1000;
-        core.warning(`Request failed: ${error.message}. Retrying in ${waitTime}ms...`);
-        await this.sleep(waitTime);
+        core.error(`Failed to fetch Jira issue ${jiraKey}: ${error.message}`);
       }
     }
+
+    return issues;
   }
 
-  buildJQL(queryTemplate, variables = {}) {
-    if (!queryTemplate) return '';
-
-    let jql = queryTemplate;
-    
-    // Replace standard variables
-    const defaultVariables = {
-      project: this.config.defaultProject,
-      days: 30,
-      ...variables
-    };
-
-    for (const [key, value] of Object.entries(defaultVariables)) {
-      const pattern = new RegExp(`\\{${key}\\}`, 'g');
-      jql = jql.replace(pattern, value);
+  /**
+   * Get current sprint data for the project
+   */
+  async getCurrentSprint() {
+    if (!this.enabled) {
+      return null;
     }
 
-    return jql;
+    try {
+      core.info(`Fetching current sprint for project: ${this.project}`);
+
+      // First, get the board for the project
+      const boardResponse = await fetch(`${this.baseUrl}/rest/agile/1.0/board?projectKeyOrId=${this.project}`, {
+        headers: {
+          'Authorization': this.authHeader,
+          'Accept': 'application/json'
+        }
+      });
+
+      if (!boardResponse.ok) {
+        core.warning('Could not fetch board information for current sprint');
+        return null;
+      }
+
+      const boardData = await boardResponse.json();
+      if (!boardData.values || boardData.values.length === 0) {
+        core.warning('No boards found for project');
+        return null;
+      }
+
+      const boardId = boardData.values[0].id;
+
+      // Get active sprints for the board
+      const sprintResponse = await fetch(`${this.baseUrl}/rest/agile/1.0/board/${boardId}/sprint?state=active`, {
+        headers: {
+          'Authorization': this.authHeader,
+          'Accept': 'application/json'
+        }
+      });
+
+      if (!sprintResponse.ok) {
+        core.warning('Could not fetch active sprints');
+        return null;
+      }
+
+      const sprintData = await sprintResponse.json();
+      if (!sprintData.values || sprintData.values.length === 0) {
+        core.info('No active sprints found');
+        return null;
+      }
+
+      const sprint = sprintData.values[0];
+      return {
+        id: sprint.id,
+        name: sprint.name,
+        state: sprint.state,
+        startDate: sprint.startDate,
+        endDate: sprint.endDate,
+        goal: sprint.goal || '',
+        boardId: boardId
+      };
+
+    } catch (error) {
+      core.error(`Failed to fetch current sprint: ${error.message}`);
+      return null;
+    }
   }
 
-  async searchIssues(jqlQuery, options = {}) {
-    const {
-      fields = ['key', 'summary', 'status', 'priority', 'assignee', 'created', 'updated', 'description'],
-      maxResults = 100,
-      startAt = 0
-    } = options;
+  /**
+   * Generate Jira summary data for templates
+   */
+  generateJiraSummary(issues, sprint = null) {
+    if (!issues.length && !sprint) {
+      return {
+        totalIssues: 0,
+        issuesByStatus: {},
+        issuesByType: {},
+        sprint: null
+      };
+    }
 
-    const params = {
-      jql: jqlQuery,
-      fields: fields.join(','),
-      maxResults,
-      startAt
-    };
+    // Group issues by status
+    const issuesByStatus = {};
+    issues.forEach(issue => {
+      if (!issuesByStatus[issue.status]) {
+        issuesByStatus[issue.status] = [];
+      }
+      issuesByStatus[issue.status].push(issue);
+    });
 
-    return this.makeRequest('search', params);
-  }
+    // Group issues by type
+    const issuesByType = {};
+    issues.forEach(issue => {
+      if (!issuesByType[issue.issueType]) {
+        issuesByType[issue.issueType] = [];
+      }
+      issuesByType[issue.issueType].push(issue);
+    });
 
-  async getCurrentSprintIssues(projectKey = null) {
-    const project = projectKey || this.config.defaultProject;
-    const jqlTemplate = this.config.queries.currentSprint;
-    const jql = this.buildJQL(jqlTemplate, { project });
-    
-    core.info(`Fetching current sprint issues for project: ${project}`);
-    return this.searchIssues(jql);
-  }
-
-  async getCompletedEpics(days = 30, projectKey = null) {
-    const project = projectKey || this.config.defaultProject;
-    const jqlTemplate = this.config.queries.completedEpic;
-    const jql = this.buildJQL(jqlTemplate, { project, days });
-    
-    core.info(`Fetching completed epics from last ${days} days for project: ${project}`);
-    return this.searchIssues(jql);
-  }
-
-  async getBlockedIssues(projectKey = null) {
-    const project = projectKey || this.config.defaultProject;
-    const jqlTemplate = this.config.queries.blockedIssues;
-    const jql = this.buildJQL(jqlTemplate, { project });
-    
-    core.info(`Fetching blocked issues for project: ${project}`);
-    return this.searchIssues(jql);
-  }
-
-  async getRecentlyCompletedIssues(days = 7, projectKey = null) {
-    const project = projectKey || this.config.defaultProject;
-    const jqlTemplate = this.config.queries.recentlyCompleted;
-    const jql = this.buildJQL(jqlTemplate, { project, days });
-    
-    core.info(`Fetching recently completed issues from last ${days} days for project: ${project}`);
-    return this.searchIssues(jql);
-  }
-
-  async getUpcomingWork(projectKey = null) {
-    const project = projectKey || this.config.defaultProject;
-    const jqlTemplate = this.config.queries.upcomingWork;
-    const jql = this.buildJQL(jqlTemplate, { project });
-    
-    core.info(`Fetching upcoming work for project: ${project}`);
-    return this.searchIssues(jql);
-  }
-
-  async getIssueDetails(issueKey) {
-    core.info(`Fetching details for issue: ${issueKey}`);
-    return this.makeRequest(`issue/${issueKey}`);
-  }
-
-  async getProject(projectKey = null) {
-    const project = projectKey || this.config.defaultProject;
-    core.info(`Fetching project details: ${project}`);
-    return this.makeRequest(`project/${project}`);
-  }
-
-  async getProjectVersions(projectKey = null) {
-    const project = projectKey || this.config.defaultProject;
-    core.info(`Fetching versions for project: ${project}`);
-    return this.makeRequest(`project/${project}/versions`);
-  }
-
-  async getIssueComments(issueKey) {
-    core.info(`Fetching comments for issue: ${issueKey}`);
-    const response = await this.makeRequest(`issue/${issueKey}/comment`);
-    return response.comments || [];
-  }
-
-  formatIssueForDocumentation(issue) {
-    if (!issue || !issue.fields) return null;
+    const allAssignees = [...new Set(issues.map(issue => issue.assignee).filter(a => a !== 'Unassigned'))];
+    const allComponents = [...new Set(issues.flatMap(issue => issue.components))];
 
     return {
-      key: issue.key,
-      summary: issue.fields.summary || 'No summary',
-      status: issue.fields.status?.name || 'Unknown',
-      priority: issue.fields.priority?.name || 'Unknown',
-      assignee: issue.fields.assignee?.displayName || 'Unassigned',
-      created: issue.fields.created,
-      updated: issue.fields.updated,
-      description: issue.fields.description || 'No description',
-      issueType: issue.fields.issuetype?.name || 'Unknown',
-      storyPoints: issue.fields.customfield_10016 || null // Common story points field
+      totalIssues: issues.length,
+      issuesByStatus: issuesByStatus,
+      issuesByType: issuesByType,
+      assignees: allAssignees,
+      components: allComponents,
+      sprint: sprint,
+      issues: issues.map(issue => ({
+        key: issue.key,
+        summary: issue.summary,
+        status: issue.status,
+        issueType: issue.issueType,
+        assignee: issue.assignee,
+        url: issue.url
+      }))
     };
-  }
-
-  async getEnrichedProjectData(options = {}) {
-    if (!this.config) {
-      core.info('Jira integration disabled, skipping data enrichment');
-      return null;
-    }
-
-    const {
-      includeCurrentSprint = true,
-      includeCompletedEpics = true,
-      includeBlockedIssues = true,
-      includeRecentWork = true,
-      recentWorkDays = 7,
-      epicHistoryDays = 30
-    } = options;
-
-    try {
-      const enrichmentData = {};
-
-      if (includeCurrentSprint) {
-        const sprintData = await this.getCurrentSprintIssues();
-        enrichmentData.currentSprint = {
-          total: sprintData.total,
-          issues: sprintData.issues.map(issue => this.formatIssueForDocumentation(issue))
-        };
-      }
-
-      if (includeCompletedEpics) {
-        const epicData = await this.getCompletedEpics(epicHistoryDays);
-        enrichmentData.completedEpics = {
-          total: epicData.total,
-          epics: epicData.issues.map(issue => this.formatIssueForDocumentation(issue))
-        };
-      }
-
-      if (includeBlockedIssues) {
-        const blockedData = await this.getBlockedIssues();
-        enrichmentData.blockedIssues = {
-          total: blockedData.total,
-          issues: blockedData.issues.map(issue => this.formatIssueForDocumentation(issue))
-        };
-      }
-
-      if (includeRecentWork) {
-        const recentData = await this.getRecentlyCompletedIssues(recentWorkDays);
-        enrichmentData.recentlyCompleted = {
-          total: recentData.total,
-          issues: recentData.issues.map(issue => this.formatIssueForDocumentation(issue))
-        };
-      }
-
-      // Add project metadata
-      const projectData = await this.getProject();
-      enrichmentData.project = {
-        key: projectData.key,
-        name: projectData.name,
-        description: projectData.description
-      };
-
-      core.info(`Jira data enrichment completed for project: ${projectData.name}`);
-      return enrichmentData;
-
-    } catch (error) {
-      core.error(`Failed to fetch Jira enrichment data: ${error.message}`);
-      return null;
-    }
-  }
-
-  isEnabled() {
-    return this.config && this.config.enabled;
-  }
-
-  getStatus() {
-    if (!this.config) {
-      return { enabled: false, reason: 'Configuration not loaded or Jira disabled' };
-    }
-
-    try {
-      this.getAuthHeaders();
-      return { 
-        enabled: true, 
-        baseUrl: this.config.baseUrl, 
-        project: this.config.defaultProject,
-        cacheSize: this.cache.size
-      };
-    } catch (error) {
-      return { enabled: false, reason: error.message };
-    }
   }
 }
 

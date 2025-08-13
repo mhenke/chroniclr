@@ -1,35 +1,28 @@
-# Chroniclr - Complete Project Intelligence System
+# Chroniclr - AI-Powered Documentation Automation
 
-> AI-powered documentation generation with enhanced discovery capabilities across GitHub discussions, Jira projects, pull requests, and issues. Production-ready with intelligent output management, comprehensive discovery engine, and runtime source selection.
+> GitHub Actions-driven documentation generation from discussions, issues, PRs, and Jira. Simple setup, zero maintenance, comprehensive project intelligence.
 
 ## Overview
 
-Chroniclr is a comprehensive project intelligence system that generates documentation from multiple data sources with runtime source selection:
+Chroniclr automates project documentation using GitHub Actions and AI. It processes GitHub discussions, issues, pull requests, and Jira data to generate comprehensive project documentation automatically.
+
+### 🤖 **AI-Powered Generation**
+- Uses GitHub Models API (GPT-4o) - **no API keys required**
+- Processes full threads and cross-references related content
+- Smart content prioritization based on engagement
+- Automatic action item extraction and GitHub issue creation
 
 ### 📊 **Data Sources**
-- **GitHub Discussions** - Discussion content, comments, community engagement analysis
-- **GitHub Issues** - Issue tracking, labels, milestones, assignee correlation
-- **Jira Projects** - Sprint data, epics, issues, project metrics, team workload  
-- **Pull Requests** - Code changes, file analysis, commit history, release documentation
+- **GitHub Discussions** - Community conversations and decisions
+- **GitHub Issues** - Bug reports, feature requests, project tracking
+- **Pull Requests** - Code changes, releases, technical documentation
+- **Jira Integration** - Sprint data, epics, project metrics
 
-### 🔍 **Enhanced Discovery Engine**
-- **Cross-Platform Correlation** - Automatically discovers and links related content across all sources
-- **Multi-Strategy Discovery** - 20+ discovery strategies including keyword analysis, semantic linking, and cross-reference detection
-- **Intelligent Confidence Scoring** - Ranks discovered content by relevance and confidence
-- **Semantic Content Linking** - AI-powered analysis to find conceptually related items
-
-### 🤖 **Core Intelligence Functions**
-- **AI Document Generation** - Uses GitHub Models API (GPT-4o) to process selected data sources
-- **Community Engagement Analysis** - Prioritizes content based on emoji reactions and engagement
-- **Smart Task Management** - Creates GitHub issues with assignments, priorities, and due dates
-- **Intelligent Output Organization** - AI-generated folder names with session management
-
-### 📚 **Generated Documentation Types**
-**From Discussions:** Project summaries, initiative briefs, meeting notes, changelogs
-**From Issues:** Issue summaries, milestone reports, bug analysis, feature tracking
-**From Jira:** Sprint reports, epic summaries, project dashboards  
-**From PRs:** Release notes, change impact reports, code review summaries
-**Multi-Source:** Cross-platform correlation reports, comprehensive project intelligence, discovery session reports
+### 📚 **Generated Documents**
+- Project summaries and meeting notes
+- Initiative briefs and technical documentation
+- Release notes and change impact assessments
+- Cross-platform correlation reports
 
 ## Quick Start
 
@@ -40,320 +33,162 @@ Chroniclr is a comprehensive project intelligence system that generates document
 git clone <your-chroniclr-repo>
 cd chroniclr
 
-# Install dependencies for GitHub Actions
+# Install dependencies
 npm install
 ```
 
-### 2. Configure Repository Permissions
+### 2. Configure Environment Variables
 
-Enable GitHub Models API access by ensuring your workflow has these permissions:
+Create or update `.env` file:
+```bash
+# For Jira integration (optional)
+JIRA_BASE_URL=https://yourcompany.atlassian.net
+JIRA_USER_EMAIL=bot@yourcompany.com
+JIRA_API_TOKEN=your-jira-token
+JIRA_PROJECT=PROJ
+```
+
+### 3. Configure Repository Permissions
+
+The GitHub Actions workflow requires these permissions:
 ```yaml
 permissions:
   contents: write      # For creating files and commits
   discussions: read    # For reading discussion data
-  pull-requests: write # For creating PRs
-  issues: write       # For creating action item issues
-  models: read        # For GitHub Models API access
+  issues: write        # For creating action item issues
+  pull-requests: read  # For PR analysis
+  models: read         # For GitHub Models API access
 ```
 
-**No API keys required** - Uses built-in `GITHUB_TOKEN` and GitHub Models API!
+### 4. Run Documentation Generation
 
-### 3. Test the System
+The system works automatically with GitHub Actions:
 
-1. Create a GitHub discussion with labels like `documentation`, `initiative`, or `planning`
-2. Add action items in comments using format: `- [ ] @username: Task description (Due: Aug 10)`
-3. Watch as Chroniclr automatically:
-   - Generates comprehensive documentation from full discussion thread
-   - Creates assigned GitHub issues for all action items
-   - Opens PR with summary of generated docs and created issues
-
-### 4. Choose Data Sources and Generate Documentation
-
-The workflow supports runtime data source selection with enhanced discovery:
 ```bash
-# Traditional discussion processing
-gh workflow run chroniclr.yml -f discussion_number=123 -f source=discussion
+# Process specific discussion
+gh workflow run chroniclr.yml -f discussion_number=123
 
-# GitHub Issues analysis with discovery
-gh workflow run chroniclr.yml -f issue_numbers=456,789 -f source=issues
+# Process specific issues
+gh workflow run chroniclr.yml -f issue_numbers=456,789
 
-# Jira project documentation  
-gh workflow run chroniclr.yml -f jira_keys=PROJ-123,FEAT-456 -f source=jira
+# Process pull requests
+gh workflow run chroniclr.yml -f pr_numbers=101,102
 
-# Pull request analysis
-gh workflow run chroniclr.yml -f pr_numbers=789,101 -f source=pr
+# Include Jira data
+gh workflow run chroniclr.yml -f jira_keys=PROJ-123,FEAT-456
 
-# Enhanced discovery across sources
-gh workflow run chroniclr.yml -f discovery_keywords=auth,security,mobile -f source=jira,pr,issues
-
-# Configuration file approach (recommended)
-gh workflow run chroniclr.yml -f config_file=.chroniclr/config.yml
-
-# All data sources with discovery
-gh workflow run chroniclr.yml -f source=discussion,jira,pr,issues -f discovery_keywords=performance
+# Multi-source processing
+gh workflow run chroniclr.yml -f discussion_number=123 -f pr_numbers=456 -f jira_keys=PROJ-789
 ```
 
 ## How It Works
 
-### 🏷️ **Label-Based Document Routing**
-Discussion labels determine which document types are generated:
-- `documentation` → Project summary + meeting notes
-- `initiative` → Initiative brief 
-- `feature` → Initiative brief + summary
+### Automated Pipeline
+1. **GitHub Actions** triggers on discussion/PR events or manual dispatch
+2. **Content Collection** gathers data from specified sources
+3. **AI Processing** analyzes content using GitHub Models API
+4. **Document Generation** creates structured documentation
+5. **Action Item Processing** creates GitHub issues for tasks
+6. **PR Creation** opens pull request with generated content
+
+### Document Types by Source
+- **Discussions**: Project summaries, initiative briefs, meeting notes
+- **Issues**: Bug analysis, feature tracking, milestone reports
+- **Pull Requests**: Release notes, change impact assessments
+- **Jira**: Sprint reports, epic summaries, project dashboards
+- **Multi-Source**: Cross-platform correlation and comprehensive intelligence
+
+## Configuration
+
+### Label-Based Document Routing
+Discussion labels determine document types via `chroniclr.config.json`:
+- `documentation` → Summary + meeting notes
+- `initiative` → Initiative brief
 - `release` → Changelog
-- `planning` → Meeting notes + summary
+- `planning` → Meeting notes
 
-### ⚙️ **Complete Automation Pipeline**
-1. **GitHub Actions** triggers on discussion events or manual workflow dispatch
-2. **Discovery Phase** uses 20+ strategies to find related content across all sources
-3. **Data Collection** fetches content from selected sources (discussions, issues, PRs, Jira)
-4. **Cross-Platform Correlation** analyzes relationships between discovered items
-5. **AI Generation** uses GitHub Models API (GPT-4o) with intelligent rate limiting
-6. **Output Management** organizes files in AI-generated folders with session tracking
-7. **Documentation Creation** generates structured documents using templates
-8. **PR Creation** opens pull request with discovery report and generated content
+### Jira Integration
+Configure Jira settings in `.env`:
+- Set `JIRA_BASE_URL`, `JIRA_USER_EMAIL`, `JIRA_API_TOKEN`
+- Update `JIRA_PROJECT` for your project key
+- System will automatically discover related Jira items
 
-### 🤖 **AI-Powered Analysis**
-- **GitHub Models API**: Uses GPT-4o via GitHub's built-in AI service with intelligent rate limiting
-- **Full Thread Processing**: Analyzes main discussion + all comments for comprehensive context
-- **Community Engagement Analysis**: Processes emoji reactions and comment engagement for content prioritization
-- **Smart Extraction**: Identifies stakeholders, decisions, action items, technical details
-- **Template Application**: Combines AI insights with structured markdown templates
-- **Robust Error Handling**: Exponential backoff retry logic prevents API failures
+## Action Item Management
 
-## 🎭 Community Engagement Analysis
+Chroniclr automatically creates GitHub issues for action items found in any source:
 
-### Reaction-Based Content Prioritization
-Chroniclr analyzes emoji reactions on discussions and comments to prioritize content in generated documents:
-
-**Engagement Metrics:**
-- **👍 High Priority**: Comments with many thumbs up reactions get featured prominently
-- **❤️ Community Love**: Heart reactions indicate strong positive sentiment
-- **🚀 Innovation**: Rocket reactions highlight exciting technical ideas
-- **👎 Concerns**: Thumbs down reactions flag potential issues for discussion
-- **Mixed Reactions**: Content with both positive and negative reactions is marked as controversial
-
-**Intelligence Features:**
+### Supported Formats
 ```markdown
-# Generated sections include:
-## Community Insights
-**Participation Level:** high • 23 reactions
-**Overall Sentiment:** positive
-**Most Discussed Topics:** Security concerns, Mobile responsiveness
-
-## High-Engagement Content (prioritize these):
-- @alex-pm: Great metrics! 4.2 hours/week saved... (8 reactions, sentiment: positive)
-- @sarah-dev: Security review process needed... (6 reactions, sentiment: mixed)
-
-## Controversial Points (mixed reactions - highlight for discussion):
-- Security: Auto-documentation of sensitive data (4 👍 vs 2 👎)
-```
-
-**Benefits:**
-- Documents reflect what the community actually cares about
-- Controversial topics are highlighted for team discussion
-- Popular suggestions get emphasized in action plans
-- Team consensus is captured through reaction patterns
-
-## 🎯 Action Item Management
-
-### Supported Action Item Formats
-Chroniclr automatically detects and processes these action item formats:
-
-```markdown
-# Checkbox format with assignment and due date
 - [ ] @username: Task description (Due: Aug 10)
-- [ ] @sarah-dev: Set up monitoring dashboard (Due: Aug 15)
-
-# Alternative format  
-- [ ] Complete API documentation @mike-torres (Due: Aug 12)
-
-# In Action Items sections
-## Action Items
-- @alex-pm: Survey team members on documentation needs (Due: Aug 18)
-- @jamie-design: Create mobile-responsive templates (Due: Aug 20)
+- [ ] Complete API documentation @developer (Due: Aug 15)
+- @assignee: Review security implementation (Due: Aug 20)
 ```
 
-### Automatic GitHub Issue Creation
-For each action item, Chroniclr:
-- ✅ **Creates GitHub Issue** with descriptive title: `[Action Item] {description}`
-- 👤 **Assigns to User** (validates user exists first)  
-- 🏷️ **Applies Labels**: `action-item`, `chroniclr-generated`, `needs-triage`
-- ⏰ **Priority Labels**: Based on due dates (high ≤3 days, medium ≤7 days, low >7 days)
-- 🔗 **Links to Source**: Full context and link back to original discussion
-- 📝 **Rich Description**: Includes due date, discussion context, and metadata
+### Automatic Issue Creation
+- ✅ Creates GitHub issues with descriptive titles
+- 👤 Assigns to mentioned users
+- 🏷️ Applies priority labels based on due dates
+- 🔗 Links back to source content
 
-## 🛠️ Development Commands
-
-### Testing Utilities
-```bash
-# Install dependencies
-npm install
-
-# Test core functionality
-npm run validate-discussion   # Test discussion validation
-npm run process-labels       # Test label-to-document mapping
-npm run generate-document    # Test AI document generation
-npm run create-action-items  # Test action item processing
-
-# Manual workflow testing
-gh workflow run chroniclr.yml -f discussion_number=123
-```
-
-### Local Testing with Environment Variables
-```bash
-# Test document generation locally
-DOC_TYPE=summary \
-DISCUSSION_NUMBER=123 \
-DISCUSSION_TITLE="Test Discussion" \
-DISCUSSION_BODY="Discussion content with comments..." \
-DISCUSSION_AUTHOR="username" \
-DISCUSSION_URL="https://github.com/owner/repo/discussions/123" \
-GITHUB_TOKEN="your_token" \
-npm run generate-document
-```
-
-## 📁 File Structure
+## File Structure
 
 ```
 chroniclr/
 ├── .github/workflows/
-│   └── chroniclr.yml               # Main automation workflow
+│   └── chroniclr.yml           # GitHub Actions automation
 ├── src/
 │   ├── generators/
-│   │   └── ai-document-generator.js # AI-powered document generation with rate limiting
-│   ├── templates/
-│   │   ├── summary.md              # Project summary template
-│   │   ├── summary-enhanced.md     # Enhanced template with engagement metrics
-│   │   ├── initiative-brief.md     # Initiative brief template  
-│   │   ├── meeting-notes.md        # Meeting notes template
-│   │   └── changelog.md            # Changelog template
-│   └── utils/
-│       ├── validate-discussion.js  # Discussion data validation
-│       ├── process-labels.js       # Label-to-document-type mapping
-│       ├── issue-creator.js        # Action item → GitHub issue creation
-│       ├── github-reactions.js     # Community engagement analysis
-│       └── request-queue.js        # API rate limiting and queue management
-├── docs/                           # Generated documentation output
-├── chroniclr.config.json           # Label mappings and configuration
-└── package.json                    # Node.js dependencies and scripts
+│   │   └── ai-document-generator.js
+│   ├── templates/              # Document templates
+│   └── utils/                  # Processing utilities
+├── docs/                       # Chroniclr project documentation
+├── generated/                  # Generated documentation (organized by source)
+│   ├── discussions/            # Discussion-based documents
+│   ├── prs/                   # Pull request analysis
+│   ├── issues/                # GitHub Issues reports  
+│   ├── jira/                  # Jira integration reports
+│   └── multi-source/          # Cross-platform reports
+├── chroniclr.config.json       # System configuration
+└── package.json
 ```
 
-## 🔧 Customization
+## Debugging
 
-### Adding New Document Types
-1. **Create template** in `src/templates/{type}.md` using `{variable}` syntax
-2. **Update label mapping** in `chroniclr.config.json`:
-   ```json
-   {
-     "github": {
-       "discussionLabels": {
-         "your-label": ["your-document-type"]
-       }
-     }
-   }
-   ```
-3. **Test locally**: `DOC_TYPE=your-type npm run generate-document`
+### Common Issues
+- **No documents generated**: Check discussion labels and permissions
+- **Action items not created**: Verify issue creation permissions
+- **Jira integration fails**: Check `.env` file configuration
+- **AI generation errors**: Review GitHub Actions logs
 
-### Customizing Templates
-Templates use `{variableName}` syntax that gets replaced by AI-generated content:
-- `{title}`, `{date}`, `{discussionNumber}` - Basic metadata
-- `{participants}`, `{stakeholders}` - People involved
-- `{objectives}`, `{decisions}`, `{actionItems}` - Content sections
-- `{timeline}`, `{nextSteps}` - Planning elements
-
-### Modifying Action Item Detection
-Edit `src/utils/issue-creator.js` to:
-- Add new regex patterns for action item formats
-- Customize issue creation logic
-- Modify label assignment rules
-- Change priority calculation
-
-## 🐛 Debugging & Troubleshooting
-
-### Common Issues & Solutions
-
-**GitHub Models API Failures**
-- Check `models: read` permission in workflow
-- **Rate Limiting**: System automatically handles 429 errors with exponential backoff (1s → 2s → 4s delays)
-- **Request Queue**: Prevents concurrent API calls that trigger rate limits
-- **Retry Logic**: 3 automatic retries before fallback to structured templates
-- View logs for: "Rate limit hit. Waiting Xms before retry Y/3..."
-
-**Action Item Issues Not Created**  
-- Ensure action items follow supported formats: `- [ ] @username: task (Due: date)`
-- Check if mentioned users exist in repository
-- Verify `issues: write` permission in workflow
-
-**Workflow Failures**
-- **Discussion not found**: Check discussion number and repository access
-- **Label processing errors**: Validate `chroniclr.config.json` syntax
-- **Permission issues**: Ensure all required permissions are configured
-
-**Generated Documents Issues**
-- Files appear in `docs/` directory
-- Missing labels default to "summary" document type  
-- Check PR creation logs if documents aren't appearing
-
-### Debug Commands
+### Test Commands
 ```bash
-# Test individual components
-npm run validate-discussion  # Check discussion data validation
-npm run process-labels      # Test label mapping logic  
-npm run generate-document   # Test AI document generation
-npm run create-action-items # Test action item processing
+# Test discussion processing
+npm run validate-discussion
 
-# View workflow logs
-gh run list --workflow=chroniclr.yml
-gh run view [run-id] --log
+# Test label mapping
+npm run process-labels
+
+# Test action item processing  
+npm run create-action-items
 ```
 
-## ✨ Features Summary
+## Features Summary
 
-### 🤖 **AI-Powered Generation**
-- Uses GitHub's built-in Models API (GPT-4o) - **no API keys required**
-- Processes full discussion threads (main post + all comments + reactions)
-- **Community Engagement**: Prioritizes content based on emoji reactions (👍, ❤️, 🚀)
-- **Sentiment Analysis**: Identifies controversial points with mixed reactions
-- **Rate Limiting**: Intelligent retry logic handles API constraints gracefully
-- Fallback generation only after exhausting all retry attempts
+### 🚀 **Zero Configuration**
+- Works with GitHub's built-in permissions and Models API
+- No external API keys required (except optional Jira)
+- Automatic setup with minimal configuration
 
-### 📋 **Smart Task Management**  
-- Automatically detects action items in multiple formats
-- Creates assigned GitHub issues with due dates and priorities
-- Validates user assignments and handles missing users gracefully
-- Links issues back to source discussions for full context
+### 🤖 **AI-Powered Intelligence**
+- Full content analysis across all sources
+- Smart action item detection and GitHub issue creation
+- Cross-platform correlation and relationship detection
 
-### 🔄 **Complete Automation**
-- Triggers on discussion creation/editing or manual workflow dispatch
-- Zero configuration required - works with GitHub's built-in permissions
-- Comprehensive error handling and logging
-- Reports generation summary in pull request descriptions
-
-### 🎯 **Production Ready**
-- Handles large repositories and complex discussions  
-- Robust error handling with fallback mechanisms
-- Comprehensive logging for debugging and monitoring
-- Battle-tested with realistic discussion scenarios
-
-## 🤝 Contributing
-
-1. **Fork the repository** and create a feature branch
-2. **Test thoroughly** with sample discussions containing action items
-3. **Run the test suite**: `npm run validate-discussion && npm run process-labels`
-4. **Submit PR** with updated documentation and test examples
-
-### Development Setup
-```bash
-git clone https://github.com/your-username/chroniclr.git
-cd chroniclr
-npm install
-```
-
-## 📄 License
-
-MIT License - See [LICENSE](LICENSE) file for details.
+### 📋 **Production Ready**
+- Robust error handling and retry logic
+- Rate limiting and API compliance
+- Comprehensive logging and monitoring
 
 ---
 
-**🚀 Transform your GitHub discussions into comprehensive documentation and organized task management with zero setup required!**
+**Transform your GitHub repository into a comprehensive documentation and task management system with zero maintenance required!**

@@ -1,15 +1,17 @@
 #!/usr/bin/env node
 
 /**
- * AI Document Generator using GitHub Models API
- * Replaces Claude Code with built-in GitHub AI models
+ * Simplified AI Document Generator using GitHub Models API
+ * Handles multi-source documentation generation
  */
 
 const core = require('@actions/core');
 const fs = require('fs').promises;
 const path = require('path');
 const { globalRequestQueue } = require('../utils/request-queue');
-const { OutputManager } = require('../utils/output-manager');
+const { PullRequestClient } = require('../utils/pr-client');
+const { IssuesClient } = require('../utils/issues-client');
+const { JiraClient } = require('../utils/jira-client');
 
 class AIDocumentGenerator {
   constructor() {
@@ -17,810 +19,377 @@ class AIDocumentGenerator {
     this.apiKey = process.env.GITHUB_TOKEN;
     this.model = 'gpt-4o';
 
-    // Log configuration for debugging
+    // Initialize data source clients
+    this.prClient = new PullRequestClient();
+    this.issuesClient = new IssuesClient();
+    this.jiraClient = new JiraClient();
+
     core.info(`AI Generator initialized with model: ${this.model}`);
-    core.info(`API endpoint: ${this.baseURL}/chat/completions`);
   }
 
   async sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  async handleRateLimitAndRetry(
-    response,
-    retryCount,
-    maxRetries,
-    baseDelayMs,
-    prompt
-  ) {
-    const status = response.status;
-
-    // Retry on 429 (rate limit) and 5xx server errors
-    if (status === 429 || status >= 500) {
-      if (retryCount < maxRetries) {
-        // Derive delay from Retry-After header or exponential backoff
-        let delayMs = baseDelayMs * Math.pow(2, retryCount);
-        const retryAfter = response.headers?.get?.('retry-after');
-        if (retryAfter) {
-          const asNumber = Number(retryAfter);
-          if (!Number.isNaN(asNumber)) {
-            delayMs = Math.max(delayMs, asNumber * 1000);
-          } else {
-            const asDate = Date.parse(retryAfter);
-            if (!Number.isNaN(asDate)) {
-              const delta = asDate - Date.now();
-              if (delta > 0) delayMs = Math.max(delayMs, delta);
-            }
-          }
-        }
-
-        core.warning(
-          `Rate limit/Server error ${status}. Waiting ${delayMs}ms before retry ${
-            retryCount + 1
-          }/${maxRetries}...`
-        );
-        await this.sleep(delayMs);
-        // Signal to retry by returning true
-        return true;
-      }
-
-      core.error(`Max retries reached for status ${status}.`);
-      return false;
-    }
-
-    // No retry handling for other statuses
-    return false;
-  }
-
   async generateCompletion(prompt) {
     const maxRetries = 3;
-    const baseDelayMs = 1000; // Start with 1 second
+    const baseDelayMs = 1000;
 
-    // Queue the request to prevent concurrent API calls
     return globalRequestQueue.add(async () => {
       let attempt = 0;
       while (attempt <= maxRetries) {
         try {
-          core.info(
-            `Making AI API request... (attempt ${attempt + 1}/${
-              maxRetries + 1
-            })`
-          );
-          const queueStatus = globalRequestQueue.getStatus();
-          core.info(
-            `Queue status: ${queueStatus.queueLength} pending, ${queueStatus.activeRequests} active`
-          );
+          core.info(`Making AI API request... (attempt ${attempt + 1}/${maxRetries + 1})`);
 
           const requestBody = {
             model: this.model,
             messages: [
               {
                 role: 'system',
-                content:
-                  'You are a professional documentation generator. Create well-structured, comprehensive documents based on GitHub discussion content.',
+                content: 'You are a professional documentation generator. Create well-structured, comprehensive documents based on the provided data sources.'
               },
               {
                 role: 'user',
-                content: prompt,
-              },
+                content: prompt
+              }
             ],
             max_tokens: 4000,
-            temperature: 0.3,
+            temperature: 0.3
           };
 
           const response = await fetch(`${this.baseURL}/chat/completions`, {
             method: 'POST',
             headers: {
-              Authorization: `Bearer ${this.apiKey}`,
-              'Content-Type': 'application/json',
-              Accept: 'application/vnd.github+json',
-              'X-GitHub-Api-Version': '2022-11-28',
+              'Authorization': `Bearer ${this.apiKey}`,
+              'Content-Type': 'application/json'
             },
-            body: JSON.stringify(requestBody),
+            body: JSON.stringify(requestBody)
           });
 
-          core.info(`API response status: ${response.status}`);
-
           if (!response.ok) {
-            const errorText = await response.text();
-            core.error(
-              `API request failed: ${response.status} ${response.statusText}`
-            );
-            core.error(`Response body: ${errorText}`);
-
-            // Use helper for rate limiting and retry logic
-            const shouldRetry = await this.handleRateLimitAndRetry(
-              response,
-              attempt,
-              maxRetries,
-              baseDelayMs,
-              prompt
-            );
-            if (shouldRetry) {
+            if ((response.status === 429 || response.status >= 500) && attempt < maxRetries) {
+              const delayMs = baseDelayMs * Math.pow(2, attempt);
+              core.warning(`Rate limit/Server error ${response.status}. Waiting ${delayMs}ms before retry...`);
+              await this.sleep(delayMs);
               attempt++;
               continue;
             }
-
-            throw new Error(
-              `API request failed: ${response.status} ${response.statusText}`
-            );
+            
+            core.error(`AI API request failed: ${response.status} ${response.statusText}`);
+            return null;
           }
 
           const data = await response.json();
-          core.info('AI response received successfully');
-
-          if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-            core.error('Invalid API response structure');
-            core.error(`Response: ${JSON.stringify(data, null, 2)}`);
-            throw new Error('Invalid API response structure');
+          if (data.choices && data.choices.length > 0) {
+            core.info('AI response received successfully');
+            return data.choices[0].message.content;
+          } else {
+            core.error('No AI response content received');
+            return null;
           }
 
-          return data.choices[0].message.content;
         } catch (error) {
-          core.error(`AI API call failed: ${error.message}`);
-
-          // Only use fallback after all retries exhausted
-          if (attempt >= maxRetries) {
-            core.error(
-              `All ${
-                maxRetries + 1
-              } attempts failed. Using fallback document generation.`
-            );
-            return this.generateFallbackDocument(prompt);
-          }
-
-          // If this is a network error and we haven't exhausted retries, try again
-          if (
-            attempt < maxRetries &&
-            (error.code === 'ECONNRESET' || error.code === 'ENOTFOUND')
-          ) {
-            const delayMs = baseDelayMs * Math.pow(2, attempt);
-            core.warning(
-              `Network error. Retrying in ${delayMs}ms... (${
-                attempt + 1
-              }/${maxRetries})`
-            );
-            await this.sleep(delayMs);
+          core.error(`AI API request error: ${error.message}`);
+          if (attempt < maxRetries) {
             attempt++;
+            await this.sleep(baseDelayMs * Math.pow(2, attempt));
             continue;
           }
-
-          throw error;
+          return null;
         }
       }
+      return null;
     });
   }
 
-  generateFallbackDocument(prompt) {
-    core.warning('Using fallback document generation (no AI processing)');
-
-    // Extract basic info from prompt for a structured fallback
-    const lines = prompt.split('\n');
-    const titleLine = lines.find((line) => line.includes('Title:'));
-    const title = titleLine
-      ? titleLine.replace('Title:', '').trim()
-      : 'Generated Document';
-
-    return `# ${title}
-
-## Overview
-This document was generated from a GitHub discussion but AI processing is currently unavailable.
-
-## Summary
-Please refer to the original discussion for full details.
-
-## Next Steps
-- Review the source discussion
-- Update this document with proper structure
-- Contact administrators about AI service issues
-
----
-*This document was generated by Chroniclr with fallback processing*`;
-  }
-
-  async loadTemplate(templateType) {
-    const templatePath = path.join(
-      __dirname,
-      '..',
-      'templates',
-      `${templateType}.md`
-    );
+  async loadTemplate(docType) {
+    const templatePath = path.join(process.cwd(), 'src', 'templates', `${docType}.md`);
+    
     try {
-      return await fs.readFile(templatePath, 'utf8');
+      const template = await fs.readFile(templatePath, 'utf8');
+      return template;
     } catch (error) {
-      core.warning(`Template not found: ${templatePath}`);
-      return this.getDefaultTemplate(templateType);
+      core.warning(`Template not found for ${docType}, using basic template`);
+      return this.getBasicTemplate(docType);
     }
   }
 
-  getDefaultTemplate(templateType) {
-    const templates = {
-      summary: `# {title}
-
-## Overview
-{overview}
-
-## Key Points
-{keyPoints}
-
-## Action Items
-{actionItems}
-
-## Participants
-{participants}
-
----
-*This document was automatically generated by Chroniclr from GitHub discussion #{discussionNumber}*`,
-
-      'initiative-brief': `# Initiative: {title}
-
-## Problem Statement
-{problemStatement}
-
-## Proposed Solution
-{proposedSolution}
-
-## Timeline
-{timeline}
-
-## Resources Required
-{resources}
-
-## Success Criteria
-{successCriteria}
-
----
-*This document was automatically generated by Chroniclr from GitHub discussion #{discussionNumber}*`,
-
-      'meeting-notes': `# Meeting Notes: {title}
+  getBasicTemplate(docType) {
+    return `# {title}
 
 **Date:** {date}
-**Attendees:** {participants}
+**Type:** ${docType}
 
-## Agenda
-{agenda}
+## Content
 
-## Discussion Points
-{discussionPoints}
-
-## Decisions Made
-{decisions}
-
-## Action Items
-{actionItems}
-
-## Next Steps
-{nextSteps}
-
----
-*This document was automatically generated by Chroniclr from GitHub discussion #{discussionNumber}*`,
-
-      changelog: `# Changelog Entry
-
-## Version {version}
-**Release Date:** {date}
-
-### Added
-{addedFeatures}
-
-### Changed
-{changedFeatures}
-
-### Fixed
-{fixedIssues}
-
----
-*This document was automatically generated by Chroniclr from GitHub discussion #{discussionNumber}*`,
-
-      'pr-summary': `# PR Summary: {prTitle}
-
-**PR Number:** #{prNumber}
-**Author:** @{prAuthor}
-**Status:** {prStatus}
-
-## Changes Summary
-- **Files Modified:** {totalFiles}
-- **Lines Added:** {linesAdded}
-- **Lines Deleted:** {linesDeleted}
-
-## Impact Areas
-{impactAreas}
-
-## Links
-- [View PR]({prUrl})
-
----
-*This PR summary was automatically generated by Chroniclr on {date}*`,
-
-      'pr-change-impact-assessment': `# Change Impact Assessment: {prTitle}
-
-**PR Number:** #{prNumber}
-**Assessment Date:** {date}
-**Risk Level:** {riskLevel}
-
-## Change Analysis
-- **Total Files:** {totalFiles}
-- **Lines Modified:** +{linesAdded}/-{linesDeleted}
-
-## Impact Areas
-{impactAreas}
-
-## Risk Assessment
-{riskFactors}
-
----
-*This change impact assessment was automatically generated by Chroniclr on {date}*`,
-
-      'pr-review-report': `# PR Review Report: {prTitle}
-
-**PR Number:** #{prNumber}
-**Author:** @{prAuthor}
-**Review Status:** {overallReviewStatus}
-
-## Review Summary
-{reviewSummary}
-
-## Review Participants
-{requiredReviewers}
-
-## Approval Status
-{approvalStatus}
-
----
-*This review report was automatically generated by Chroniclr on {date}*`,
-
-      'pr-validation-checklist': `# PR Validation Checklist: {prTitle}
-
-**PR Number:** #{prNumber}
-**Author:** @{prAuthor}
-**Status:** {validationStatus}
-
-## Basic Requirements
-- [ ] Title is descriptive
-- [ ] Description provided
-- [ ] No merge conflicts
-
-## Code Quality
-- [ ] Code follows style guide
-- [ ] Proper error handling
-- [ ] Tests provided
-
-## Final Validation
-- [ ] All validations complete
-- [ ] Ready for merge
-
----
-*This validation checklist was automatically generated by Chroniclr on {date}*`,
-
-      'pr-release-notes': `# PR Release Notes: {prTitle}
-
-**PR Number:** #{prNumber}
-**Author:** @{prAuthor}
-**Merged:** {mergedDate}
+{content}
 
 ## Summary
-{prSummaryForRelease}
 
-## Changes Included
-{newFeatures}
-
-## Technical Changes
-{technicalChanges}
-
-## Links
-- [Original PR]({prUrl})
+{summary}
 
 ---
-*These release notes were automatically generated by Chroniclr from PR #{prNumber}*`,
+*This document was automatically generated by Chroniclr*`;
+  }
+
+  async collectDataFromSources() {
+    const sourceModules = (process.env.SOURCE_MODULES || 'discussion').split(',').map(s => s.trim());
+    const collectedData = {
+      discussion: null,
+      prs: [],
+      issues: [],
+      jiraIssues: [],
+      sources: sourceModules
     };
 
-    return templates[templateType] || templates['summary'];
-  }
-
-  async generateDocument(docType, discussionData) {
-    const template = await this.loadTemplate(docType);
-
-    // Log if we have comments in the content
-    const hasComments = discussionData.body.includes(
-      '--- DISCUSSION COMMENTS ---'
-    );
-    const commentsCount = hasComments
-      ? (discussionData.body.match(/\*\*Comment \d+ by @/g) || []).length
-      : 0;
-
-    // Fetch reaction/engagement data if available
-    let engagementData = null;
-    if (discussionData.owner && discussionData.repo) {
-      try {
-        const { GitHubReactionsClient } = require('../utils/github-reactions');
-        const reactionsClient = new GitHubReactionsClient();
-        engagementData = await reactionsClient.getDiscussionEngagementData(
-          discussionData.owner,
-          discussionData.repo,
-          discussionData.number
-        );
-        core.info(
-          `- Engagement data: ${engagementData.summary.totalEngagement} reactions, ${engagementData.summary.participationLevel} participation`
-        );
-      } catch (error) {
-        core.warning(`Could not fetch engagement data: ${error.message}`);
-      }
-    }
-
-    // Fetch Jira enrichment data if available
-    let jiraData = null;
-    try {
-      const { JiraClient } = require('../utils/jira-client');
-      const jiraClient = new JiraClient();
-      
-      if (jiraClient.isEnabled()) {
-        core.info('Fetching Jira enrichment data...');
-        jiraData = await jiraClient.getEnrichedProjectData({
-          includeCurrentSprint: docType.includes('sprint') || docType.includes('summary'),
-          includeCompletedEpics: docType.includes('epic') || docType.includes('initiative'),
-          includeBlockedIssues: docType.includes('dashboard') || docType.includes('summary'),
-          includeRecentWork: docType.includes('summary') || docType.includes('dashboard'),
-          recentWorkDays: 7,
-          epicHistoryDays: 30
-        });
-        
-        if (jiraData) {
-          core.info(`- Jira data: ${jiraData.project.name} project enrichment loaded`);
-          if (jiraData.currentSprint) {
-            core.info(`  - Current sprint: ${jiraData.currentSprint.total} issues`);
-          }
-          if (jiraData.completedEpics) {
-            core.info(`  - Completed epics: ${jiraData.completedEpics.total} epics`);
-          }
-          if (jiraData.blockedIssues) {
-            core.info(`  - Blocked issues: ${jiraData.blockedIssues.total} issues`);
-          }
-        }
-      }
-    } catch (error) {
-      core.warning(`Could not fetch Jira data: ${error.message}`);
-    }
-
-    core.info(`Processing discussion for ${docType} generation:`);
-    core.info(
-      `- Main discussion content: ${
-        discussionData.body.split('--- DISCUSSION COMMENTS ---')[0].length
-      } characters`
-    );
-    core.info(`- Comments included: ${hasComments ? 'Yes' : 'No'}`);
-    core.info(`- Number of comments: ${commentsCount}`);
-
-    // Build engagement context for AI prompt
-    let engagementContext = '';
-    if (engagementData && engagementData.summary.totalEngagement > 0) {
-      engagementContext = `
-
-Community Engagement Analysis:
-- Total Reactions: ${engagementData.summary.totalEngagement}
-- Participation Level: ${engagementData.summary.participationLevel}  
-- Overall Sentiment: ${engagementData.summary.overallSentiment}
-- Main Discussion Reactions: ${engagementData.mainDiscussion.totalReactions} (${
-        engagementData.mainDiscussion.positive
-      } positive, ${engagementData.mainDiscussion.negative} negative)
-
-High-Engagement Comments (prioritize these):
-${engagementData.summary.topComments
-  .map(
-    (comment) =>
-      `- @${comment.author}: ${comment.body}... (${comment.totalReactions} reactions, sentiment: ${comment.sentiment})`
-  )
-  .join('\n')}
-
-${
-  engagementData.summary.controversialContent.length > 0
-    ? `
-Controversial Points (mixed reactions - highlight for discussion):
-${engagementData.summary.controversialContent
-  .map(
-    (item) =>
-      `- ${item.type}: ${
-        item.body ? item.body.substring(0, 100) : 'Main discussion'
-      }... (${item.positive} 👍 vs ${item.negative} 👎)`
-  )
-  .join('\n')}`
-    : ''
-}
-`;
-    }
-
-    // Build Jira context for AI prompt
-    let jiraContext = '';
-    if (jiraData) {
-      jiraContext = `
-
-Jira Project Data Enrichment (${jiraData.project.name}):
-Project: ${jiraData.project.name} (${jiraData.project.key})
-${jiraData.project.description ? `Description: ${jiraData.project.description}` : ''}
-
-${jiraData.currentSprint ? `
-Current Sprint Status:
-- Active Issues: ${jiraData.currentSprint.total}
-- Key Issues in Progress:
-${jiraData.currentSprint.issues.slice(0, 5).map(issue => 
-  `  * ${issue.key}: ${issue.summary} (${issue.status}, ${issue.assignee})`
-).join('\n')}` : ''}
-
-${jiraData.completedEpics ? `
-Recently Completed Epics:
-- Total Completed: ${jiraData.completedEpics.total}
-- Key Achievements:
-${jiraData.completedEpics.epics.slice(0, 3).map(epic => 
-  `  * ${epic.key}: ${epic.summary} (${epic.assignee})`
-).join('\n')}` : ''}
-
-${jiraData.blockedIssues && jiraData.blockedIssues.total > 0 ? `
-Current Blockers & Risks:
-- Blocked Issues: ${jiraData.blockedIssues.total}
-- Critical Blockers:
-${jiraData.blockedIssues.issues.slice(0, 3).map(issue => 
-  `  * ${issue.key}: ${issue.summary} (${issue.priority}, ${issue.assignee})`
-).join('\n')}` : ''}
-
-${jiraData.recentlyCompleted ? `
-Recent Progress (Last 7 days):
-- Completed Issues: ${jiraData.recentlyCompleted.total}
-- Key Deliveries:
-${jiraData.recentlyCompleted.issues.slice(0, 5).map(issue => 
-  `  * ${issue.key}: ${issue.summary}${issue.storyPoints ? ` (${issue.storyPoints} pts)` : ''}`
-).join('\n')}` : ''}
-
-IMPORTANT: Use this Jira data to enrich the document with:
-- Real project status and progress metrics
-- Actual work items and their current states  
-- Specific team member assignments and workloads
-- Concrete blockers and risks that need attention
-- Quantified delivery metrics (story points, completion rates)
-- Cross-reference discussion topics with actual Jira issues when relevant
-`;
-    }
-
-    const prompt = `
-Based on the following GitHub discussion (including all comments and community engagement), generate a ${docType} document using this template structure:
-
-Template:
-${template}
-
-Discussion Details:
-- Title: ${discussionData.title}
-- Author: ${discussionData.author}
-- URL: ${discussionData.url}
-- Full Discussion Content (main post + all comments):
-${discussionData.body}${engagementContext}${jiraContext}
-
-Instructions:
-1. Analyze BOTH the main discussion post AND all comments for comprehensive information
-2. Extract key insights, decisions, and action items from the entire conversation thread
-3. Identify stakeholders mentioned in comments and their contributions
-4. Synthesize information from multiple participants into cohesive sections
-5. Prioritize information based on frequency of mention, importance, AND community engagement (reactions)
-6. Give extra weight to highly-reacted content and controversial points that need attention
-7. ${jiraData ? 'ENRICH with Jira project data: Include actual work items, progress metrics, team assignments, and blockers from the Jira context above' : 'Focus on discussion content as primary source'}
-8. ${jiraData ? 'Cross-reference discussion topics with real Jira issues when relevant and include specific issue keys' : 'Use discussion content for all metrics and progress updates'}
-9. Fill in template variables with comprehensive content from the full discussion${jiraData ? ' and Jira enrichment data' : ''}
-10. Maintain professional tone while capturing diverse viewpoints from comments
-11. Include specific details, action items, timelines, and technical specifications mentioned
-12. Replace {discussionNumber} with ${discussionData.number}
-13. Return only the final document content, no explanations
-
-Key areas to focus on when processing comments:
-- Technical implementation details and code suggestions
-- User feedback and feature requests (especially highly-reacted ones)
-- Progress updates and status reports
-- Decisions made and rationale provided  
-- Action items with assigned owners and deadlines
-- Concerns raised and mitigation strategies (especially controversial points)
-- Alternative approaches and recommendations
-- Community consensus indicators from reaction patterns
-
-CRITICAL: For action items, use this specific format for GitHub issue creation:
-- [ ] @username: Task description (Due: Aug 10)
-- [ ] @assignee: Another task description (Due: Aug 15)
-
-Ensure all action items follow this format exactly so they can be automatically converted to GitHub issues with proper assignments and due dates.
-
-Generate the comprehensive ${docType} document now:
-`;
-
-    try {
-      core.info(`Generating ${docType} document with AI...`);
-      const generatedContent = await this.generateCompletion(prompt);
-
-      // Validate that we got actual generated content, not just copied input
-      if (generatedContent.includes(discussionData.body.substring(0, 100))) {
-        core.warning(
-          'Generated content appears to be copied input - AI processing may have failed'
-        );
-      }
-
-      // Audit & sanitize speculative content
-      const audited = this.sanitizeAndAuditContent(
-        generatedContent,
-        discussionData,
-        docType
-      );
-      return audited;
-    } catch (error) {
-      core.error(`Failed to generate ${docType}: ${error.message}`);
-
-      // Return a basic structured document instead of failing completely
-      const template = await this.loadTemplate(docType);
-      return template
-        .replace(/\{title\}/g, discussionData.title)
-        .replace(/\{discussionNumber\}/g, discussionData.number)
-        .replace(/\{.*?\}/g, '[AI processing unavailable]');
-    }
-  }
-
-  async saveDocument(docType, content, discussionNumber, discussionData = {}) {
-    // Use intelligent output management
-    const outputManager = new OutputManager();
-    
-    // Check if we have an active session from the workflow
-    const sessionOutputDir = process.env.CHRONICLR_OUTPUT_DIR;
-    const sessionId = process.env.CHRONICLR_SESSION_ID;
-    
-    let filepath;
-    if (sessionOutputDir && sessionId) {
-      // Use the existing session
-      const filename = `${docType}-${discussionNumber || 'generated'}.md`;
-      filepath = path.join(sessionOutputDir, filename);
-      
-      // Ensure directory exists
-      await fs.mkdir(sessionOutputDir, { recursive: true });
-      
-      core.info(`📁 Using session output directory: ${sessionOutputDir}`);
-    } else {
-      // Create a new session for standalone generation
-      const context = {
-        discussionNumber,
-        discussionTitle: discussionData.title,
-        discussionAuthor: discussionData.author,
-        sources: [docType.includes('pr') ? 'pr' : docType.includes('jira') ? 'jira' : 'discussion']
+    // Collect Discussion Data
+    if (sourceModules.includes('discussion') && process.env.DISCUSSION_NUMBER) {
+      collectedData.discussion = {
+        number: process.env.DISCUSSION_NUMBER,
+        title: process.env.DISCUSSION_TITLE || 'Discussion',
+        body: process.env.DISCUSSION_BODY || '',
+        author: process.env.DISCUSSION_AUTHOR || 'unknown',
+        url: process.env.DISCUSSION_URL || '',
+        commentsCount: parseInt(process.env.COMMENTS_COUNT) || 0
       };
-      
-      const session = await outputManager.initializeSession(context);
-      filepath = outputManager.getOutputPath(docType, `${docType}-${discussionNumber || 'generated'}.md`);
-      
-      core.info(`📁 Created new session: ${session.folderName}`);
+      core.info(`✅ Collected discussion data: #${collectedData.discussion.number}`);
     }
 
-    await fs.writeFile(filepath, content, 'utf8');
-    core.info(`✅ Generated: ${filepath}`);
-    
-    // Register the file with the output manager (if in session mode)
-    if (sessionOutputDir) {
-      try {
-        // Create a temporary output manager instance to register the file
-        const tempOutputManager = new OutputManager();
-        tempOutputManager.currentSession = {
-          outputDir: sessionOutputDir,
-          sessionId,
-          generatedFiles: []
-        };
-        tempOutputManager.registerGeneratedFile(filepath, docType, {
-          discussionNumber,
-          generatedAt: new Date().toISOString()
-        });
-      } catch (error) {
-        core.warning(`Failed to register file with output manager: ${error.message}`);
+    // Collect PR Data
+    if (sourceModules.includes('pr') && process.env.PR_NUMBERS) {
+      const prNumbers = process.env.PR_NUMBERS.split(',').map(n => n.trim()).filter(n => n);
+      collectedData.prs = await this.prClient.fetchPullRequests(prNumbers);
+      core.info(`✅ Collected ${collectedData.prs.length} PRs`);
+    }
+
+    // Collect Issues Data
+    if (sourceModules.includes('issues') && process.env.ISSUE_NUMBERS) {
+      const issueNumbers = process.env.ISSUE_NUMBERS.split(',').map(n => n.trim()).filter(n => n);
+      collectedData.issues = await this.issuesClient.fetchIssues(issueNumbers);
+      core.info(`✅ Collected ${collectedData.issues.length} issues`);
+    }
+
+    // Collect Jira Data
+    if (sourceModules.includes('jira') && process.env.JIRA_KEYS) {
+      const jiraKeys = process.env.JIRA_KEYS.split(',').map(k => k.trim()).filter(k => k);
+      collectedData.jiraIssues = await this.jiraClient.fetchJiraIssues(jiraKeys);
+      
+      // Also get current sprint if no specific keys provided
+      if (jiraKeys.length === 0) {
+        collectedData.currentSprint = await this.jiraClient.getCurrentSprint();
       }
+      
+      core.info(`✅ Collected ${collectedData.jiraIssues.length} Jira issues`);
     }
 
-    return filepath;
+    return collectedData;
   }
 
-  sanitizeAndAuditContent(content, discussionData, docType) {
-    try {
-      const src = (discussionData.body || '').toLowerCase();
-      const lines = String(content).split(/\r?\n/);
+  createAIPrompt(docType, data, template) {
+    let prompt = `Generate a ${docType} document using the following data sources:\n\n`;
 
-      const prohibited = [
-        /cannot be (accurately )?determined/i,
-        /not provided/i,
-        /not specified/i,
-        /unknown(\b|:)/i,
-        /could not be found/i,
-        /cannot be inferred/i,
-      ];
+    // Add discussion content
+    if (data.discussion) {
+      prompt += `## Discussion Data\n`;
+      prompt += `Title: ${data.discussion.title}\n`;
+      prompt += `Author: ${data.discussion.author}\n`;
+      prompt += `Comments: ${data.discussion.commentsCount}\n`;
+      prompt += `Content:\n${data.discussion.body}\n\n`;
+    }
 
-      const filtered = lines.filter((line) => {
-        // Drop meta-statements about missing info
-        if (prohibited.some((re) => re.test(line))) return false;
-
-        // Avoid fabricated meeting duration unless present in source
-        if (/duration/i.test(line)) {
-          if (!src.includes('duration')) return false;
-        }
-
-        return true;
+    // Add PR content
+    if (data.prs.length > 0) {
+      prompt += `## Pull Requests (${data.prs.length})\n`;
+      data.prs.forEach(pr => {
+        prompt += `- PR #${pr.number}: ${pr.title} (${pr.author})\n`;
+        prompt += `  Status: ${pr.state}, Merged: ${pr.merged}\n`;
+        prompt += `  Files: ${pr.files.length}, Jira: ${pr.jiraKeys.join(', ')}\n`;
       });
-
-      const cleaned = filtered.join('\n');
-      if (cleaned !== content) {
-        core.warning(
-          'Audit removed non-verifiable or speculative lines from generated content'
-        );
-      }
-      return cleaned;
-    } catch (e) {
-      core.warning(`Audit step failed: ${e.message}`);
-      return content;
+      prompt += `\n`;
     }
+
+    // Add issues content
+    if (data.issues.length > 0) {
+      prompt += `## GitHub Issues (${data.issues.length})\n`;
+      data.issues.forEach(issue => {
+        prompt += `- Issue #${issue.number}: ${issue.title} (${issue.author})\n`;
+        prompt += `  Status: ${issue.state}, Labels: ${issue.labels.map(l => l.name).join(', ')}\n`;
+      });
+      prompt += `\n`;
+    }
+
+    // Add Jira content
+    if (data.jiraIssues.length > 0) {
+      prompt += `## Jira Issues (${data.jiraIssues.length})\n`;
+      data.jiraIssues.forEach(issue => {
+        prompt += `- ${issue.key}: ${issue.summary}\n`;
+        prompt += `  Status: ${issue.status}, Type: ${issue.issueType}, Assignee: ${issue.assignee}\n`;
+      });
+      prompt += `\n`;
+    }
+
+    prompt += `## Instructions\n`;
+    prompt += `Please create a comprehensive ${docType} document that:\n`;
+    prompt += `1. Synthesizes information from all provided sources\n`;
+    prompt += `2. Follows the template structure provided\n`;
+    prompt += `3. Extracts key insights, decisions, and action items\n`;
+    prompt += `4. Creates clear sections and proper markdown formatting\n`;
+    prompt += `5. Maintains professional documentation standards\n\n`;
+
+    prompt += `## Template Structure\n${template}\n\n`;
+    prompt += `Please replace template variables with appropriate content based on the data above.`;
+
+    return prompt;
+  }
+
+  async generateDocument() {
+    try {
+      const docType = process.env.DOC_TYPE || 'summary';
+      
+      // Collect data from all enabled sources
+      const data = await this.collectDataFromSources();
+      
+      // Load template
+      const template = await this.loadTemplate(docType);
+      
+      // Create AI prompt
+      const prompt = this.createAIPrompt(docType, data, template);
+      
+      // Generate content with AI
+      core.info(`Generating ${docType} document using AI...`);
+      const aiContent = await this.generateCompletion(prompt);
+      
+      let finalContent;
+      if (aiContent) {
+        finalContent = aiContent;
+      } else {
+        core.warning('AI generation failed, using fallback template');
+        finalContent = this.createFallbackContent(docType, data, template);
+      }
+
+      // Save document to organized generated folder
+      const baseOutputDir = path.join(process.cwd(), 'generated');
+      const sourceFolder = this.determineSourceFolder(data);
+      const outputDir = path.join(baseOutputDir, sourceFolder);
+      await fs.mkdir(outputDir, { recursive: true });
+      
+      const fileName = this.generateFileName(docType, data);
+      const filePath = path.join(outputDir, fileName);
+      
+      await fs.writeFile(filePath, finalContent, 'utf8');
+      
+      core.info(`✅ Generated document: ${fileName}`);
+      return { filePath, fileName, content: finalContent };
+
+    } catch (error) {
+      core.error(`Document generation failed: ${error.message}`);
+      throw error;
+    }
+  }
+
+  determineSourceFolder(data) {
+    // Determine primary source for folder organization
+    if (data.discussion) {
+      return 'discussions';
+    } else if (data.prs.length > 0) {
+      return 'prs';
+    } else if (data.issues.length > 0) {
+      return 'issues';
+    } else if (data.jiraIssues.length > 0) {
+      return 'jira';
+    } else {
+      // Multi-source or unknown - use current date
+      const today = new Date().toISOString().split('T')[0];
+      return `multi-source/${today}`;
+    }
+  }
+
+  generateFileName(docType, data) {
+    const timestamp = Date.now();
+    const currentDate = new Date().toISOString().split('T')[0];
+    
+    if (data.discussion) {
+      return `${docType}-${data.discussion.number}.md`;
+    } else if (data.prs.length > 0) {
+      return `${docType}-pr-${data.prs.map(pr => pr.number).join('-')}.md`;
+    } else if (data.issues.length > 0) {
+      return `${docType}-issues-${data.issues.map(i => i.number).join('-')}.md`;
+    } else if (data.jiraIssues.length > 0) {
+      return `${docType}-jira-${data.jiraIssues.map(j => j.key).join('-')}.md`;
+    } else {
+      return `${docType}-${currentDate}-${timestamp}.md`;
+    }
+  }
+
+  createFallbackContent(docType, data, template) {
+    let content = template;
+    const currentDate = new Date().toISOString().split('T')[0];
+    
+    // Replace basic variables
+    content = content.replace(/{title}/g, this.generateTitle(docType, data));
+    content = content.replace(/{date}/g, currentDate);
+    content = content.replace(/{content}/g, this.generateBasicContent(data));
+    content = content.replace(/{summary}/g, this.generateBasicSummary(data));
+    
+    return content;
+  }
+
+  generateTitle(docType, data) {
+    if (data.discussion) {
+      return data.discussion.title;
+    } else {
+      const sourceCount = data.prs.length + data.issues.length + data.jiraIssues.length;
+      return `${docType.charAt(0).toUpperCase() + docType.slice(1)} - ${sourceCount} Items`;
+    }
+  }
+
+  generateBasicContent(data) {
+    let content = '';
+    
+    if (data.discussion) {
+      content += `## Discussion\n${data.discussion.body}\n\n`;
+    }
+    
+    if (data.prs.length > 0) {
+      content += `## Pull Requests\n`;
+      data.prs.forEach(pr => {
+        content += `- [PR #${pr.number}](${pr.url}): ${pr.title}\n`;
+      });
+      content += '\n';
+    }
+    
+    if (data.issues.length > 0) {
+      content += `## Issues\n`;
+      data.issues.forEach(issue => {
+        content += `- [Issue #${issue.number}](${issue.url}): ${issue.title}\n`;
+      });
+      content += '\n';
+    }
+    
+    if (data.jiraIssues.length > 0) {
+      content += `## Jira Issues\n`;
+      data.jiraIssues.forEach(issue => {
+        content += `- [${issue.key}](${issue.url}): ${issue.summary}\n`;
+      });
+      content += '\n';
+    }
+    
+    return content;
+  }
+
+  generateBasicSummary(data) {
+    const totalItems = (data.discussion ? 1 : 0) + data.prs.length + data.issues.length + data.jiraIssues.length;
+    return `Processed ${totalItems} items from ${data.sources.join(', ')} sources.`;
   }
 }
 
-async function main() {
-  try {
-    const docType = process.env.DOC_TYPE || core.getInput('doc-type');
-    const discussionNumber =
-      process.env.DISCUSSION_NUMBER || core.getInput('discussion-number');
-    const discussionTitle =
-      process.env.DISCUSSION_TITLE || core.getInput('discussion-title');
-    const discussionBody =
-      process.env.DISCUSSION_BODY || core.getInput('discussion-body');
-    const discussionAuthor =
-      process.env.DISCUSSION_AUTHOR || core.getInput('discussion-author');
-    const discussionUrl =
-      process.env.DISCUSSION_URL || core.getInput('discussion-url');
-
-    if (!docType || !discussionNumber || !discussionTitle || !discussionBody) {
-      core.setFailed('Missing required parameters');
-      return;
-    }
-
-    const generator = new AIDocumentGenerator();
-
-    // Extract owner/repo from GitHub repository environment or URL
-    const gitHubRepository = process.env.GITHUB_REPOSITORY;
-    let owner, repo;
-    if (gitHubRepository) {
-      [owner, repo] = gitHubRepository.split('/');
-    } else if (discussionUrl) {
-      // Parse from URL like https://github.com/owner/repo/discussions/123
-      const urlMatch = discussionUrl.match(
-        /github\.com\/([^\/]+)\/([^\/]+)\/discussions/
-      );
-      if (urlMatch) {
-        [, owner, repo] = urlMatch;
-      }
-    }
-
-    const discussionData = {
-      number: discussionNumber,
-      title: discussionTitle,
-      body: discussionBody,
-      author: discussionAuthor,
-      url: discussionUrl,
-      owner,
-      repo,
-    };
-
-    core.info(
-      `Generating ${docType} document for discussion #${discussionNumber}`
-    );
-
-    const content = await generator.generateDocument(docType, discussionData);
-    const filepath = await generator.saveDocument(
-      docType,
-      content,
-      discussionNumber,
-      discussionData
-    );
-
-    core.setOutput('filepath', filepath);
-    core.setOutput('generated', 'true');
-  } catch (error) {
-    core.setFailed(`Document generation failed: ${error.message}`);
-  }
-}
-
+// CLI execution
 if (require.main === module) {
-  main();
+  const generator = new AIDocumentGenerator();
+  generator.generateDocument().catch(error => {
+    core.setFailed(error.message);
+    process.exit(1);
+  });
 }
 
 module.exports = { AIDocumentGenerator };

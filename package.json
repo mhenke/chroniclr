@@ -6,18 +6,8 @@
   "scripts": {
     "validate-discussion": "node src/utils/validate-discussion.js",
     "process-labels": "node src/utils/process-labels.js",
-    "setup-env": "node src/utils/setup-env.js",
     "generate-document": "node src/generators/ai-document-generator.js",
-    "create-action-items": "node src/utils/issue-creator.js",
-    "test-pr-templates": "node src/utils/pr-document-generator.js test-all",
-    "test-pr-template": "node src/utils/pr-document-generator.js test",
-    "generate-config": "node src/utils/config-loader.js generate",
-    "test-rate-limiter": "node src/utils/rate-limiter.js test",
-    "test-pr-discovery": "node src/utils/pr-client.js test-discovery",
-    "test-issues-discovery": "node src/utils/issues-client.js test",
-    "test-discovery-engine": "node src/utils/discovery-engine.js test",
-    "list-sessions": "node src/utils/output-manager.js list",
-    "update-document": "node src/utils/document-updater.js update"
+    "create-action-items": "node src/utils/issue-creator.js"
   },
   "keywords": [
     "documentation",
