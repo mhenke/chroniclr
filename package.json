@@ -6,17 +6,14 @@
   "scripts": {
     "validate-discussion": "node src/utils/validate-discussion.js",
     "process-labels": "node src/utils/process-labels.js",
-    "generate-document": "node src/generators/ai-document-generator.js",
-    "create-action-items": "node src/utils/issue-creator.js"
+    "generate-document": "node src/generators/ai-document-generator.js"
   },
   "keywords": [
     "documentation",
     "automation",
     "github",
     "github-models",
-    "ai",
-    "action-items",
-    "task-management"
+    "ai"
   ],
   "author": "Chroniclr",
   "license": "MIT",

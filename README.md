@@ -1,10 +1,10 @@
-# Chroniclr - AI-Powered Documentation Automation
+# Chroniclr - AI-Powered Documentation & Communication Automation
 
-> GitHub Actions-driven documentation generation from discussions, issues, PRs, and Jira. Simple setup, zero maintenance, comprehensive project intelligence.
+> GitHub Actions-driven documentation and stakeholder communication generation from discussions, issues, PRs, and Jira. Simple setup, zero maintenance, focused on essential project communication.
 
 ## Overview
 
-Chroniclr automates project documentation using GitHub Actions and AI. It processes GitHub discussions, issues, pull requests, and Jira data to generate comprehensive project documentation automatically.
+Chroniclr automates project documentation and stakeholder communications using GitHub Actions and AI. It processes GitHub discussions, issues, pull requests, and Jira data to generate comprehensive project documentation and communication materials automatically.
 
 ### 🤖 **AI-Powered Generation**
 - Uses GitHub Models API (GPT-4o) - **no API keys required**
@@ -18,11 +18,12 @@ Chroniclr automates project documentation using GitHub Actions and AI. It proces
 - **Pull Requests** - Code changes, releases, technical documentation
 - **Jira Integration** - Sprint data, epics, project metrics
 
-### 📚 **Generated Documents**
+### 📚 **Generated Documents & Communications**
 - Project summaries and meeting notes
 - Initiative briefs and technical documentation
 - Release notes and change impact assessments
-- Cross-platform correlation reports
+- Stakeholder communications and team notifications
+- Release communications and status updates
 
 ## Quick Start
 
@@ -113,22 +114,16 @@ Configure Jira settings in `.env`:
 - Update `JIRA_PROJECT` for your project key
 - System will automatically discover related Jira items
 
-## Action Item Management
+## Communication Types
 
-Chroniclr automatically creates GitHub issues for action items found in any source:
+Chroniclr generates various types of communications based on discussion labels:
 
-### Supported Formats
-```markdown
-- [ ] @username: Task description (Due: Aug 10)
-- [ ] Complete API documentation @developer (Due: Aug 15)
-- @assignee: Review security implementation (Due: Aug 20)
-```
-
-### Automatic Issue Creation
-- ✅ Creates GitHub issues with descriptive titles
-- 👤 Assigns to mentioned users
-- 🏷️ Applies priority labels based on due dates
-- 🔗 Links back to source content
+### Available Communication Types
+- **release-communication** - Stakeholder notifications for releases
+- **stakeholder-update** - Progress updates for project stakeholders  
+- **team-notification** - Team-specific announcements and updates
+- **meeting-notes** - Structured meeting summaries
+- **initiative-brief** - Project initiative documentation
 
 ## File Structure
 
@@ -155,9 +150,9 @@ chroniclr/
 
 ### Common Issues
 - **No documents generated**: Check discussion labels and permissions
-- **Action items not created**: Verify issue creation permissions
-- **Jira integration fails**: Check `.env` file configuration
+- **Jira integration fails**: Check GitHub Secrets configuration
 - **AI generation errors**: Review GitHub Actions logs
+- **Communication not generated**: Verify discussion has appropriate labels
 
 ### Test Commands
 ```bash
@@ -167,8 +162,8 @@ npm run validate-discussion
 # Test label mapping
 npm run process-labels
 
-# Test action item processing  
-npm run create-action-items
+# Test document and communication generation
+npm run generate-document
 ```
 
 ## Features Summary
@@ -180,7 +175,7 @@ npm run create-action-items
 
 ### 🤖 **AI-Powered Intelligence**
 - Full content analysis across all sources
-- Smart action item detection and GitHub issue creation
+- Smart communication generation for different stakeholder groups
 - Cross-platform correlation and relationship detection
 
 ### 📋 **Production Ready**
@@ -190,4 +185,4 @@ npm run create-action-items
 
 ---
 
-**Transform your GitHub repository into a comprehensive documentation and task management system with zero maintenance required!**
+**Transform your GitHub repository into a comprehensive documentation and communication system with zero maintenance required!**

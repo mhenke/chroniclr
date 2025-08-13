@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Chroniclr** is an AI-powered documentation automation system that generates project documentation from GitHub discussions, issues, pull requests, and Jira. The system operates **exclusively through GitHub Actions** with AI-powered generation using GitHub Models API.
+**Chroniclr** is an AI-powered documentation and communication automation system that generates project documentation and stakeholder communications from GitHub discussions, issues, pull requests, and Jira. The system operates **exclusively through GitHub Actions** with AI-powered generation using GitHub Models API.
 
 ## Core Principles
 
@@ -24,11 +24,12 @@ The system processes 4 data sources:
 - `pr` - Pull Requests with file analysis and Jira key extraction  
 - `jira` - Jira integration via GitHub Secrets
 
-### AI-Powered Document Generation
+### AI-Powered Document & Communication Generation
 - **GitHub Models API** (GPT-4o) for content generation - no external API keys required
 - **Simple API clients** for data fetching (no complex discovery engines)
-- **Template-based generation** with AI enhancement
+- **Template-based generation** with AI enhancement for documentation and communications
 - **Request queuing** with retry logic for reliability
+- **Stakeholder communications** for releases, updates, and notifications
 
 ### AI-Powered Output Organization  
 Generated documents are organized in `generated/` folder with AI-generated date-topic structure:
@@ -44,8 +45,7 @@ Generated documents are organized in `generated/` folder with AI-generated date-
 npm install                    # Install dependencies
 npm run validate-discussion    # Test discussion validation
 npm run process-labels        # Test label-to-document-type mapping
-npm run generate-document     # Test document generation (requires env vars)
-npm run create-action-items   # Test action item extraction
+npm run generate-document     # Test document and communication generation (requires env vars)
 
 # Test GitHub Actions workflow
 gh workflow run chroniclr.yml -f discussion_number=123
@@ -61,15 +61,14 @@ gh workflow run chroniclr.yml -f discussion_number=123 -f pr_numbers=456 -f jira
 
 The workflow in `.github/workflows/chroniclr.yml` expects these secrets:
 - `GITHUB_TOKEN` (auto-provided)
-- `CLAUDE_API_KEY` (must be configured)
 - `JIRA_BASE_URL`, `JIRA_USER_EMAIL`, `JIRA_API_TOKEN`, `JIRA_PROJECT` (optional, for Jira integration)
 
 ### Simple Workflow Architecture
 1. **Validation** - Ensure required parameters are provided
 2. **Data Collection** - Simple API clients fetch data from specified sources  
-3. **AI Generation** - GitHub Models API generates documents using templates
+3. **AI Generation** - GitHub Models API generates documents and communications using templates
 4. **AI Organization** - Content analyzed to generate topic-based folder structure
-5. **PR Creation** - Documents committed with branch naming `docs/chroniclr-{discussion-number}`
+5. **PR Creation** - Documents committed with branch naming `docs/chroniclr-{run-number}`
 
 Generated files follow pattern: `docs/{doc-type}-{source-id}.md` in AI-organized folders
 
