@@ -803,6 +803,23 @@ Bad examples: "database", "mobile", "security" (too generic)`;
     content = content.replace(/{lastUpdated}/g, currentDate);
     content = content.replace(/{releaseDate}/g, currentDate);
 
+    // Replace meeting-specific time variables
+    const currentTime = new Date().toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+      timeZone: 'UTC',
+    });
+    content = content.replace(/{time}/g, `${currentTime} UTC`);
+
+    // Estimate duration based on discussion content length
+    const estimatedDuration = this.estimateMeetingDuration(data);
+    content = content.replace(/{duration}/g, estimatedDuration);
+
+    // Replace meeting type based on discussion labels or title
+    const meetingType = this.determineMeetingType(data);
+    content = content.replace(/{meetingType}/g, meetingType);
+
     // Replace status and progress variables
     content = content.replace(/{status}/g, 'Active');
     content = content.replace(/{progress}/g, 'In Progress');
@@ -882,6 +899,46 @@ Bad examples: "database", "mobile", "security" (too generic)`;
       'Previous versions will be referenced as available.'
     );
 
+    // Replace meeting-specific variables
+    content = content.replace(
+      /{attendees}/g,
+      this.generateAttendeesSection(data)
+    );
+    content = content.replace(/{agenda}/g, this.generateAgendaSection(data));
+    content = content.replace(
+      /{discussionSummary}/g,
+      this.generateDiscussionSummary(data)
+    );
+    content = content.replace(
+      /{decisions}/g,
+      this.generateDecisionsSection(data)
+    );
+    content = content.replace(
+      /{actionItemsTable}/g,
+      this.generateActionItemsTable(data)
+    );
+    content = content.replace(
+      /{nextSteps}/g,
+      this.generateNextStepsSection(data)
+    );
+    content = content.replace(
+      /{followupItems}/g,
+      this.generateFollowUpItems(data)
+    );
+    content = content.replace(
+      /{resourcesShared}/g,
+      this.generateResourcesShared(data)
+    );
+    content = content.replace(
+      /{nextMeetingDate}/g,
+      this.generateNextMeetingDate()
+    );
+    content = content.replace(/{nextAgenda}/g, this.generateNextAgenda(data));
+    content = content.replace(
+      /{previousMeetingNotes}/g,
+      this.generatePreviousMeetingNotesUrl(data)
+    );
+
     return content;
   }
 
@@ -924,6 +981,212 @@ Bad examples: "database", "mobile", "security" (too generic)`;
     }
 
     return `Special thanks to: ${contributors.map((c) => `@${c}`).join(', ')}`;
+  }
+
+  // Meeting-specific helper methods
+  estimateMeetingDuration(data) {
+    // Estimate duration based on discussion content length
+    const contentLength = data.discussion?.body?.length || 0;
+    const commentsCount = data.discussion?.commentsCount || 0;
+
+    if (contentLength < 500 && commentsCount < 5) {
+      return '30 minutes';
+    } else if (contentLength < 1500 && commentsCount < 15) {
+      return '45 minutes';
+    } else if (contentLength < 3000 && commentsCount < 30) {
+      return '1 hour';
+    } else {
+      return '1.5 hours';
+    }
+  }
+
+  determineMeetingType(data) {
+    const title = data.discussion?.title?.toLowerCase() || '';
+    const labels = data.discussion?.labels || [];
+
+    if (title.includes('standup') || labels.includes('standup')) {
+      return 'Daily Standup';
+    } else if (
+      title.includes('retrospective') ||
+      labels.includes('retrospective')
+    ) {
+      return 'Sprint Retrospective';
+    } else if (title.includes('planning') || labels.includes('planning')) {
+      return 'Sprint Planning';
+    } else if (title.includes('review') || labels.includes('review')) {
+      return 'Sprint Review';
+    } else if (title.includes('kickoff') || labels.includes('kickoff')) {
+      return 'Project Kickoff';
+    } else {
+      return 'Team Meeting';
+    }
+  }
+
+  generateAttendeesSection(data) {
+    const attendees = new Set();
+
+    if (data.discussion?.author) {
+      attendees.add(data.discussion.author);
+    }
+
+    // Extract attendees from comments
+    if (data.discussion?.comments) {
+      data.discussion.comments.forEach((comment) => {
+        if (comment.author) {
+          attendees.add(comment.author);
+        }
+      });
+    }
+
+    // Add contributors from related PRs and issues
+    this.getUniqueContributors(data).forEach((contributor) => {
+      attendees.add(contributor);
+    });
+
+    if (attendees.size === 0) {
+      return '- Meeting attendees will be determined from discussion participants';
+    }
+
+    return Array.from(attendees)
+      .map((attendee) => `- @${attendee}`)
+      .join('\n');
+  }
+
+  generateAgendaSection(data) {
+    // Try to extract agenda from discussion body
+    const body = data.discussion?.body || '';
+
+    // Look for common agenda patterns
+    const agendaMatch = body.match(
+      /(?:agenda|topics|items):\s*([\s\S]*?)(?:\n\n|$)/i
+    );
+    if (agendaMatch) {
+      return agendaMatch[1].trim();
+    }
+
+    // Fallback to discussion title and key topics
+    const title = data.discussion?.title || 'Discussion Topics';
+    return `1. ${title}\n2. Review action items from previous meeting\n3. Open discussion\n4. Next steps`;
+  }
+
+  generateDiscussionSummary(data) {
+    if (data.discussion?.body) {
+      // Use first paragraph or first 300 characters as summary
+      const firstParagraph = data.discussion.body.split('\n\n')[0];
+      return firstParagraph.length > 300
+        ? firstParagraph.substring(0, 300) + '...'
+        : firstParagraph;
+    }
+
+    return 'Discussion summary will be generated from the meeting content.';
+  }
+
+  generateDecisionsSection(data) {
+    // Look for decision keywords in discussion
+    const content = data.discussion?.body || '';
+    const decisionKeywords =
+      /(?:decided|decision|agreed|resolve[d]?|conclusion):\s*([^\n]+)/gi;
+    const decisions = [];
+    let match;
+
+    while ((match = decisionKeywords.exec(content)) !== null) {
+      decisions.push(match[1].trim());
+    }
+
+    if (decisions.length > 0) {
+      return decisions
+        .map((decision, index) => `${index + 1}. ${decision}`)
+        .join('\n');
+    }
+
+    return '- Key decisions will be documented based on discussion outcomes';
+  }
+
+  generateActionItemsTable(data) {
+    // Look for action items in discussion
+    const content = data.discussion?.body || '';
+    const actionPattern = /(?:action|todo|task):\s*([^\n]+)(?:\s*@(\w+))?/gi;
+    const actions = [];
+    let match;
+
+    while ((match = actionPattern.exec(content)) !== null) {
+      const task = match[1].trim();
+      const assignee = match[2] || 'TBD';
+      const dueDate = 'Next meeting';
+      const status = 'Open';
+
+      actions.push(`| ${task} | @${assignee} | ${dueDate} | ${status} |`);
+    }
+
+    if (actions.length > 0) {
+      return actions.join('\n');
+    }
+
+    return '| Action items will be tracked here | Assignee | Due Date | Status |';
+  }
+
+  generateNextStepsSection(data) {
+    // Extract next steps from discussion
+    const content = data.discussion?.body || '';
+    const nextStepsMatch = content.match(
+      /(?:next steps?|follow.?up):\s*([\s\S]*?)(?:\n\n|$)/i
+    );
+
+    if (nextStepsMatch) {
+      return nextStepsMatch[1].trim();
+    }
+
+    return '- Review and implement discussed solutions\n- Follow up on action items\n- Prepare for next meeting';
+  }
+
+  generateFollowUpItems(data) {
+    // Look for follow-up mentions
+    const content = data.discussion?.body || '';
+    const followUpPattern = /follow.?up:\s*([^\n]+)/gi;
+    const followUps = [];
+    let match;
+
+    while ((match = followUpPattern.exec(content)) !== null) {
+      followUps.push(match[1].trim());
+    }
+
+    if (followUps.length > 0) {
+      return followUps.map((item, index) => `${index + 1}. ${item}`).join('\n');
+    }
+
+    return '- Items requiring follow-up will be listed here';
+  }
+
+  generateResourcesShared(data) {
+    // Look for URLs and resource mentions in discussion
+    const content = data.discussion?.body || '';
+    const urlPattern = /https?:\/\/[^\s)]+/g;
+    const urls = content.match(urlPattern) || [];
+
+    if (urls.length > 0) {
+      return urls.map((url) => `- [Resource](${url})`).join('\n');
+    }
+
+    return '- Meeting resources and links will be listed here';
+  }
+
+  generateNextMeetingDate() {
+    // Generate next week's date
+    const nextWeek = new Date();
+    nextWeek.setDate(nextWeek.getDate() + 7);
+    return nextWeek.toISOString().split('T')[0];
+  }
+
+  generateNextAgenda(data) {
+    return '- Review action items\n- Continue discussion on open topics\n- New business';
+  }
+
+  generatePreviousMeetingNotesUrl(data) {
+    // Construct URL to previous meeting notes in the same repository
+    const repoUrl = `https://github.com/${
+      process.env.GITHUB_REPOSITORY || 'owner/repo'
+    }`;
+    return `${repoUrl}/blob/main/generated/meeting-notes/previous-meeting.md`;
   }
   generateSourceDescription(data) {
     const sources = [];
