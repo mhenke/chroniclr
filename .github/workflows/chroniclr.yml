@@ -81,14 +81,26 @@ jobs:
             }
 
             // Get discussion details
-            const { data: discussion } = await github.request(
-              'GET /repos/{owner}/{repo}/discussions/{discussion_number}',
-              {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                discussion_number: Number(discussionNumber)
+            let discussion;
+            try {
+              const response = await github.request(
+                'GET /repos/{owner}/{repo}/discussions/{discussion_number}',
+                {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  discussion_number: Number(discussionNumber)
+                }
+              );
+              discussion = response.data;
+            } catch (error) {
+              if (error.status === 404) {
+                core.setFailed(`Discussion #${discussionNumber} not found. Please check the discussion number and try again.`);
+                return;
+              } else {
+                core.setFailed(`Failed to fetch discussion #${discussionNumber}: ${error.message}`);
+                return;
               }
-            );
+            }
 
             // Get discussion comments using GraphQL
             const commentsQuery = `
