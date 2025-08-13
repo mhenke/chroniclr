@@ -19,6 +19,7 @@ class AIDocumentGenerator {
     this.apiKey = process.env.GITHUB_TOKEN;
     this.model = 'gpt-4o';
     this.consecutiveAPIFailures = 0; // Track consecutive failures for fallback strategy
+    this.rateLimitExceeded = false; // Track if we've hit the daily rate limit
 
     // Fabrication Control Configuration
     this.allowFabricatedContent =
@@ -56,6 +57,12 @@ class AIDocumentGenerator {
   }
 
   async generateCompletion(prompt) {
+    // Check if we've already exceeded the rate limit
+    if (this.rateLimitExceeded) {
+      core.warning('⚠️  Rate limit already exceeded, skipping AI generation');
+      return null;
+    }
+
     const maxRetries = 5; // Increased from 3
     const baseDelayMs = 2000; // Increased from 1000
     const maxDelayMs = 30000; // Maximum delay cap
@@ -97,9 +104,26 @@ class AIDocumentGenerator {
           });
 
           if (!response.ok) {
+            const errorText = await response
+              .text()
+              .catch(() => 'Unknown error');
+
+            // Check for daily rate limit first
+            if (
+              response.status === 429 &&
+              errorText.includes('UserByModelByDay')
+            ) {
+              this.rateLimitExceeded = true;
+              core.error(
+                `🚫 Daily rate limit exceeded (50 requests/24h). No further AI calls will be made.`
+              );
+              return null;
+            }
+
             if (
               (response.status === 429 || response.status >= 500) &&
-              attempt < maxRetries
+              attempt < maxRetries &&
+              !this.rateLimitExceeded
             ) {
               // Enhanced exponential backoff with jitter
               const exponentialDelay = Math.min(
@@ -122,9 +146,17 @@ class AIDocumentGenerator {
               continue;
             }
 
-            const errorText = await response
-              .text()
-              .catch(() => 'Unknown error');
+            // Check if this is a daily rate limit exceeded error (already have errorText from above)
+            if (
+              response.status === 429 &&
+              errorText.includes('UserByModelByDay')
+            ) {
+              this.rateLimitExceeded = true;
+              core.error(
+                `🚫 Daily rate limit exceeded (50 requests/24h). Switching to template-only mode for remaining operations.`
+              );
+            }
+
             core.error(
               `❌ AI API request failed: ${response.status} ${response.statusText} - ${errorText}`
             );
@@ -437,10 +469,19 @@ class AIDocumentGenerator {
       // Prioritize template-based generation to minimize API calls
       const preferTemplates =
         process.env.PREFER_TEMPLATES === 'true' ||
-        this.consecutiveAPIFailures > 2;
+        this.consecutiveAPIFailures > 2 ||
+        this.rateLimitExceeded;
 
       if (preferTemplates) {
-        core.info('📝 Using template-based generation to avoid rate limits...');
+        if (this.rateLimitExceeded) {
+          core.info(
+            '🚫 Daily rate limit exceeded - using template-only generation...'
+          );
+        } else {
+          core.info(
+            '📝 Using template-based generation to avoid rate limits...'
+          );
+        }
         results = await this.generateTemplateOnlyDocuments(docTypes, data);
       } else if (docTypes.length > 1) {
         core.info('📦 Using bundled AI generation for multiple documents...');
@@ -462,6 +503,19 @@ class AIDocumentGenerator {
       // Generate comprehensive metadata file
       if (results.length > 0) {
         await this.generateMetadataFile(docTypes, data, results);
+
+        // Show rate limit warning if applicable
+        if (this.rateLimitExceeded) {
+          core.warning(
+            '⚠️  Daily API rate limit (50 requests/24h) was exceeded during generation.'
+          );
+          core.warning(
+            '📝 Documents were generated using template fallbacks to ensure completion.'
+          );
+          core.warning(
+            '🔄 Rate limit resets in 24 hours. AI enhancement will resume then.'
+          );
+        }
       }
 
       return results;
@@ -793,6 +847,12 @@ class AIDocumentGenerator {
   }
 
   async generateAITopic(data) {
+    // Skip AI generation if rate limit exceeded
+    if (this.rateLimitExceeded) {
+      core.info('⚠️  Rate limit exceeded, using fallback topic generation');
+      return this.generateFallbackTopic(data);
+    }
+
     // Collect all content for AI analysis
     let content = '';
     if (data.discussion) content += `Discussion: "${data.discussion.title}" `;
@@ -828,6 +888,10 @@ Bad examples: "database", "mobile", "security" (too generic)`;
       core.warning(`AI topic generation failed: ${error.message}`);
     }
 
+    return this.generateFallbackTopic(data);
+  }
+
+  generateFallbackTopic(data) {
     // Fallback: extract from discussion title or first PR
     if (data.discussion) {
       return this.extractTopicFromTitle(data.discussion.title);
