@@ -18,6 +18,7 @@ class AIDocumentGenerator {
     this.baseURL = 'https://models.github.ai/inference';
     this.apiKey = process.env.GITHUB_TOKEN;
     this.model = 'gpt-4o';
+    this.consecutiveAPIFailures = 0; // Track consecutive failures for fallback strategy
 
     // Initialize data source clients only if GitHub token is available
     if (this.apiKey) {
@@ -31,7 +32,7 @@ class AIDocumentGenerator {
       this.jiraClient = null;
     }
 
-    core.info(`AI Generator initialized with model: ${this.model}`);
+    core.info(`🚀 AI Generator initialized with model: ${this.model}`);
   }
 
   async sleep(ms) {
@@ -39,15 +40,16 @@ class AIDocumentGenerator {
   }
 
   async generateCompletion(prompt) {
-    const maxRetries = 3;
-    const baseDelayMs = 1000;
+    const maxRetries = 5; // Increased from 3
+    const baseDelayMs = 2000; // Increased from 1000
+    const maxDelayMs = 30000; // Maximum delay cap
 
     return globalRequestQueue.add(async () => {
       let attempt = 0;
       while (attempt <= maxRetries) {
         try {
           core.info(
-            `Making AI API request... (attempt ${attempt + 1}/${
+            `🤖 Making AI API request... (attempt ${attempt + 1}/${
               maxRetries + 1
             })`
           );
@@ -58,7 +60,7 @@ class AIDocumentGenerator {
               {
                 role: 'system',
                 content:
-                  'You are a professional documentation generator. Create well-structured, comprehensive documents based on the provided data sources.',
+                  'You are a professional documentation generator. Create well-structured, comprehensive documents based on the provided data sources. Always respond with complete, valid markdown content.',
               },
               {
                 role: 'user',
@@ -83,36 +85,50 @@ class AIDocumentGenerator {
               (response.status === 429 || response.status >= 500) &&
               attempt < maxRetries
             ) {
-              const delayMs = baseDelayMs * Math.pow(2, attempt);
+              // Enhanced exponential backoff with jitter
+              const exponentialDelay = Math.min(baseDelayMs * Math.pow(2, attempt), maxDelayMs);
+              const jitter = Math.random() * 1000; // Add randomness to prevent thundering herd
+              const delayMs = exponentialDelay + jitter;
+              
               core.warning(
-                `Rate limit/Server error ${response.status}. Waiting ${delayMs}ms before retry...`
+                `⏱️  Rate limit/Server error ${response.status}. Enhanced backoff: waiting ${Math.round(delayMs)}ms before retry... (${attempt + 1}/${maxRetries})`
               );
+              
               await this.sleep(delayMs);
               attempt++;
               continue;
             }
 
+            const errorText = await response.text().catch(() => 'Unknown error');
             core.error(
-              `AI API request failed: ${response.status} ${response.statusText}`
+              `❌ AI API request failed: ${response.status} ${response.statusText} - ${errorText}`
             );
             return null;
           }
 
           const data = await response.json();
           if (data.choices && data.choices.length > 0) {
-            core.info('AI response received successfully');
+            core.info('✅ AI response received successfully');
+            this.consecutiveAPIFailures = 0; // Reset on success
             return data.choices[0].message.content;
           } else {
-            core.error('No AI response content received');
+            core.error('❌ No AI response content received');
+            this.consecutiveAPIFailures++;
             return null;
           }
         } catch (error) {
-          core.error(`AI API request error: ${error.message}`);
+          core.error(`💥 AI API request error: ${error.message}`);
+          this.consecutiveAPIFailures++;
+          
           if (attempt < maxRetries) {
             attempt++;
-            await this.sleep(baseDelayMs * Math.pow(2, attempt));
+            const retryDelay = baseDelayMs * Math.pow(2, attempt);
+            core.info(`🔄 Retrying in ${retryDelay}ms... (attempt ${attempt}/${maxRetries})`);
+            await this.sleep(retryDelay);
             continue;
           }
+          
+          core.warning(`⚠️  AI generation failed after ${maxRetries + 1} attempts. Consecutive failures: ${this.consecutiveAPIFailures}`);
           return null;
         }
       }
@@ -360,21 +376,33 @@ class AIDocumentGenerator {
         .filter((type) => type);
 
       core.info(
-        `Processing ${docTypes.length} document types: ${docTypes.join(', ')}`
+        `🎯 Processing ${docTypes.length} document types: ${docTypes.join(', ')}`
       );
 
       // Collect data from all enabled sources
       const data = await this.collectDataFromSources();
 
       let results;
-      // Use bundled generation to reduce API calls
-      if (docTypes.length > 1) {
-        core.info('Using bundled AI generation for multiple documents...');
+      
+      // Prioritize template-based generation to minimize API calls
+      const preferTemplates = process.env.PREFER_TEMPLATES === 'true' || this.consecutiveAPIFailures > 2;
+      
+      if (preferTemplates) {
+        core.info('📝 Using template-based generation to avoid rate limits...');
+        results = await this.generateTemplateOnlyDocuments(docTypes, data);
+      } else if (docTypes.length > 1) {
+        core.info('📦 Using bundled AI generation for multiple documents...');
         results = await this.generateBundledDocuments(docTypes, data);
       } else {
-        core.info('Using single document generation...');
+        core.info('🤖 Using single document AI generation...');
         const result = await this.generateSingleDocument(docTypes[0], data);
         results = result ? [result] : [];
+      }
+
+      // If AI generation failed completely, fall back to templates
+      if (!results || results.length === 0) {
+        core.warning('⚠️  AI generation failed completely, using template fallback for all documents');
+        results = await this.generateTemplateOnlyDocuments(docTypes, data);
       }
 
       // Generate comprehensive metadata file
@@ -384,7 +412,7 @@ class AIDocumentGenerator {
 
       return results;
     } catch (error) {
-      core.error(`Document generation failed: ${error.message}`);
+      core.error(`❌ Document generation failed: ${error.message}`);
       throw error;
     }
   }
@@ -507,6 +535,77 @@ class AIDocumentGenerator {
     }
 
     return results;
+  }
+
+  async generateTemplateOnlyDocuments(docTypes, data) {
+    core.info('📝 Generating documents using template-based approach only (no AI calls)...');
+    const results = [];
+
+    // Generate a simple topic without AI
+    const topic = this.generateSimpleTopic(data);
+    core.info(`Using simple topic: ${topic}`);
+
+    // Load all templates
+    const templates = {};
+    for (const docType of docTypes) {
+      try {
+        templates[docType] = await this.loadTemplate(docType);
+      } catch (error) {
+        core.warning(`⚠️  Could not load template for ${docType}: ${error.message}`);
+        continue;
+      }
+    }
+
+    // Generate documents using only template replacement (no AI)
+    for (const docType of docTypes) {
+      try {
+        if (!templates[docType]) {
+          core.warning(`⚠️  Skipping ${docType} - template not available`);
+          continue;
+        }
+
+        // Use template with variable replacement only
+        let content = templates[docType];
+        content = this.replaceTemplateVariables(content, data);
+        
+        const result = await this.saveDocument(docType, data, content, topic);
+        if (result) {
+          results.push(result);
+          core.info(`✅ Generated template-based document: ${docType}`);
+        }
+      } catch (error) {
+        core.error(
+          `Template-only generation failed for ${docType}: ${error.message}`
+        );
+      }
+    }
+
+    core.info(`📊 Successfully generated ${results.length}/${docTypes.length} documents using templates only`);
+    return results;
+  }
+
+  generateSimpleTopic(data) {
+    // Generate topic without AI using available data
+    if (data.discussion?.title) {
+      // Clean and format the discussion title
+      return data.discussion.title
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, '')
+        .replace(/\s+/g, '-')
+        .substring(0, 50);
+    }
+    
+    if (data.prs && data.prs.length > 0) {
+      return `pr-updates-${data.prs.length}-items`;
+    }
+    
+    if (data.issues && data.issues.length > 0) {
+      return `issue-updates-${data.issues.length}-items`;
+    }
+    
+    // Fallback with date
+    const date = new Date().toISOString().split('T')[0];
+    return `project-update-${date}`;
   }
 
   async generateSingleDocument(docType, data) {
@@ -783,9 +882,21 @@ Bad examples: "database", "mobile", "security" (too generic)`;
     const currentDate = new Date().toISOString().split('T')[0];
     const currentDateTime = new Date().toISOString();
 
+    // Initialize content source tracking for auditing
+    const contentSources = {
+      extracted: [],
+      inferred: [],
+      generated: [],
+    };
+
+    core.info(
+      '🔍 Starting template variable replacement with source tracking...'
+    );
+
     // Replace discussion number if available
     if (data.discussion && data.discussion.number) {
       content = content.replace(/{discussionNumber}/g, data.discussion.number);
+      contentSources.extracted.push('discussionNumber');
     } else {
       // Create detailed source description for multi-source data
       const sourceDescription = this.generateSourceDescription(data);
@@ -948,64 +1059,262 @@ Bad examples: "database", "mobile", "security" (too generic)`;
 
     // Replace general template variables for summaries and other documents
     content = content.replace(/{summary}/g, this.generateSummarySection(data));
-    content = content.replace(/{objectives}/g, this.generateObjectivesSection(data));
-    content = content.replace(/{currentPhase}/g, this.generateCurrentPhase(data));
-    content = content.replace(/{nextMilestone}/g, this.generateNextMilestone(data));
-    content = content.replace(/{stakeholders}/g, this.generateStakeholdersSection(data));
-    content = content.replace(/{recentUpdates}/g, this.generateRecentUpdatesSection(data));
-    content = content.replace(/{actionItems}/g, this.generateActionItemsSection(data));
+    content = content.replace(
+      /{objectives}/g,
+      this.generateObjectivesSection(data)
+    );
+    content = content.replace(
+      /{currentPhase}/g,
+      this.generateCurrentPhase(data)
+    );
+    content = content.replace(
+      /{nextMilestone}/g,
+      this.generateNextMilestone(data)
+    );
+    content = content.replace(
+      /{stakeholders}/g,
+      this.generateStakeholdersSection(data)
+    );
+    content = content.replace(
+      /{recentUpdates}/g,
+      this.generateRecentUpdatesSection(data)
+    );
+    content = content.replace(
+      /{actionItems}/g,
+      this.generateActionItemsSection(data)
+    );
 
     // Replace additional common template variables
-    content = content.replace(/{title}/g, data.discussion?.title || 'Generated Document');
-    content = content.replace(/{project}/g, process.env.GITHUB_REPOSITORY?.split('/')[1] || 'Project');
+    content = content.replace(
+      /{title}/g,
+      data.discussion?.title || 'Generated Document'
+    );
+    content = content.replace(
+      /{project}/g,
+      process.env.GITHUB_REPOSITORY?.split('/')[1] || 'Project'
+    );
     content = content.replace(/{updateType}/g, 'Automated Update');
     content = content.replace(/{recipients}/g, 'Project Stakeholders');
-    content = content.replace(/{progressSummary}/g, this.generateProgressSummary(data));
-    content = content.replace(/{accomplishments}/g, this.generateAccomplishments(data));
-    content = content.replace(/{completedItems}/g, this.generateCompletedItems(data));
-    content = content.replace(/{inProgressItems}/g, this.generateInProgressItems(data));
-    content = content.replace(/{upcomingItems}/g, this.generateUpcomingItems(data));
-    content = content.replace(/{risksBlockers}/g, this.generateRisksBlockers(data));
-    content = content.replace(/{budgetStatus}/g, this.generateBudgetStatus(data));
-    content = content.replace(/{timelineUpdates}/g, this.generateTimelineUpdates(data));
-    content = content.replace(/{decisionsNeeded}/g, this.generateDecisionsNeeded(data));
-    content = content.replace(/{nextUpdateDate}/g, this.generateNextUpdateDate());
-    content = content.replace(/{nextMeetingDate}/g, this.generateNextMeetingDate());
+    content = content.replace(
+      /{progressSummary}/g,
+      this.generateProgressSummary(data)
+    );
+    content = content.replace(
+      /{accomplishments}/g,
+      this.generateAccomplishments(data)
+    );
+    content = content.replace(
+      /{completedItems}/g,
+      this.generateCompletedItems(data)
+    );
+    content = content.replace(
+      /{inProgressItems}/g,
+      this.generateInProgressItems(data)
+    );
+    content = content.replace(
+      /{upcomingItems}/g,
+      this.generateUpcomingItems(data)
+    );
+    content = content.replace(
+      /{risksBlockers}/g,
+      this.generateRisksBlockers(data)
+    );
+    content = content.replace(
+      /{budgetStatus}/g,
+      this.generateBudgetStatus(data)
+    );
+    content = content.replace(
+      /{timelineUpdates}/g,
+      this.generateTimelineUpdates(data)
+    );
+    content = content.replace(
+      /{decisionsNeeded}/g,
+      this.generateDecisionsNeeded(data)
+    );
+    content = content.replace(
+      /{nextUpdateDate}/g,
+      this.generateNextUpdateDate()
+    );
+    content = content.replace(
+      /{nextMeetingDate}/g,
+      this.generateNextMeetingDate()
+    );
 
     // Replace PR-specific variables
-    content = content.replace(/{prTitle}/g, data.prs?.[0]?.title || 'Pull Request');
+    content = content.replace(
+      /{prTitle}/g,
+      data.prs?.[0]?.title || 'Pull Request'
+    );
     content = content.replace(/{prNumber}/g, data.prs?.[0]?.number || 'N/A');
-    content = content.replace(/{prAuthor}/g, data.prs?.[0]?.author || 'Unknown');
-    content = content.replace(/{overallReviewStatus}/g, this.generateOverallReviewStatus(data));
-    content = content.replace(/{reviewSummary}/g, this.generateReviewSummary(data));
-    content = content.replace(/{baseBranch}/g, data.prs?.[0]?.baseBranch || 'main');
-    content = content.replace(/{headBranch}/g, data.prs?.[0]?.headBranch || 'feature-branch');
+    content = content.replace(
+      /{prAuthor}/g,
+      data.prs?.[0]?.author || 'Unknown'
+    );
+    content = content.replace(
+      /{overallReviewStatus}/g,
+      this.generateOverallReviewStatus(data)
+    );
+    content = content.replace(
+      /{reviewSummary}/g,
+      this.generateReviewSummary(data)
+    );
+    content = content.replace(
+      /{baseBranch}/g,
+      data.prs?.[0]?.baseBranch || 'main'
+    );
+    content = content.replace(
+      /{headBranch}/g,
+      data.prs?.[0]?.headBranch || 'feature-branch'
+    );
     content = content.replace(/{totalFiles}/g, data.prs?.[0]?.files || '0');
     content = content.replace(/{linesAdded}/g, data.prs?.[0]?.additions || '0');
-    content = content.replace(/{linesDeleted}/g, data.prs?.[0]?.deletions || '0');
+    content = content.replace(
+      /{linesDeleted}/g,
+      data.prs?.[0]?.deletions || '0'
+    );
     content = content.replace(/{totalCommits}/g, data.prs?.[0]?.commits || '0');
 
     // Replace release and deployment variables with fallbacks
-    content = content.replace(/{majorFeatures}/g, 'Major features will be extracted from pull requests and issues.');
-    content = content.replace(/{enhancements}/g, 'Enhancements will be identified from the provided content.');
-    content = content.replace(/{performanceImprovements}/g, 'Performance improvements will be noted if mentioned in the source materials.');
-    content = content.replace(/{criticalFixes}/g, 'Critical fixes will be highlighted from bug-related pull requests.');
-    content = content.replace(/{generalBugFixes}/g, 'General bug fixes will be compiled from closed issues and merged PRs.');
-    content = content.replace(/{apiChanges}/g, 'API changes will be documented if identified in the code changes.');
-    content = content.replace(/{breakingChanges}/g, 'Breaking changes will be highlighted if detected in the release content.');
-    content = content.replace(/{deploymentNotes}/g, 'Deployment instructions will be provided based on the release requirements.');
-    content = content.replace(/{configurationChanges}/g, 'Configuration changes will be noted if mentioned in the documentation.');
-    content = content.replace(/{databaseMigrations}/g, 'Database migration steps will be included if database changes are detected.');
+    content = content.replace(
+      /{majorFeatures}/g,
+      'Major features will be extracted from pull requests and issues.'
+    );
+    content = content.replace(
+      /{enhancements}/g,
+      'Enhancements will be identified from the provided content.'
+    );
+    content = content.replace(
+      /{performanceImprovements}/g,
+      'Performance improvements will be noted if mentioned in the source materials.'
+    );
+    content = content.replace(
+      /{criticalFixes}/g,
+      'Critical fixes will be highlighted from bug-related pull requests.'
+    );
+    content = content.replace(
+      /{generalBugFixes}/g,
+      'General bug fixes will be compiled from closed issues and merged PRs.'
+    );
+    content = content.replace(
+      /{apiChanges}/g,
+      'API changes will be documented if identified in the code changes.'
+    );
+    content = content.replace(
+      /{breakingChanges}/g,
+      'Breaking changes will be highlighted if detected in the release content.'
+    );
+    content = content.replace(
+      /{deploymentNotes}/g,
+      'Deployment instructions will be provided based on the release requirements.'
+    );
+    content = content.replace(
+      /{configurationChanges}/g,
+      'Configuration changes will be noted if mentioned in the documentation.'
+    );
+    content = content.replace(
+      /{databaseMigrations}/g,
+      'Database migration steps will be included if database changes are detected.'
+    );
 
     // Replace metrics and quality variables
-    content = content.replace(/{testCoverage}/g, 'Test coverage metrics will be reported if available from CI/CD results.');
-    content = content.replace(/{qualityMetrics}/g, 'Code quality metrics will be included from automated analysis tools.');
-    content = content.replace(/{knownIssues}/g, 'Known issues will be compiled from open tickets and bug reports.');
-    content = content.replace(/{upgradeInstructions}/g, 'Upgrade instructions will be generated based on version compatibility.');
-    content = content.replace(/{compatibilityNotes}/g, 'Compatibility information will be documented for different environments.');
-    content = content.replace(/{migrationChecklist}/g, 'Migration checklist will be provided for seamless transitions.');
+    content = content.replace(
+      /{testCoverage}/g,
+      'Test coverage metrics will be reported if available from CI/CD results.'
+    );
+    content = content.replace(
+      /{qualityMetrics}/g,
+      'Code quality metrics will be included from automated analysis tools.'
+    );
+    content = content.replace(
+      /{knownIssues}/g,
+      'Known issues will be compiled from open tickets and bug reports.'
+    );
+    content = content.replace(
+      /{upgradeInstructions}/g,
+      'Upgrade instructions will be generated based on version compatibility.'
+    );
+    content = content.replace(
+      /{compatibilityNotes}/g,
+      'Compatibility information will be documented for different environments.'
+    );
+    content = content.replace(
+      /{migrationChecklist}/g,
+      'Migration checklist will be provided for seamless transitions.'
+    );
+
+    // Track content source classifications
+    this.trackContentSourceClassifications(data, contentSources);
+
+    // Log template variable replacement audit trail
+    core.info('📋 Template Variable Replacement Audit:');
+    core.info(
+      `   🔍 Extracted from source: ${contentSources.extracted.length} variables`
+    );
+    core.info(
+      `   🧠 Inferred from data: ${contentSources.inferred.length} variables`
+    );
+    core.info(
+      `   📝 Generated fallbacks: ${contentSources.generated.length} variables`
+    );
+
+    // Store audit information for metadata generation
+    if (!this.auditTrail) {
+      this.auditTrail = {};
+    }
+    this.auditTrail.templateVariables = contentSources;
 
     return content;
+  }
+
+  trackContentSourceClassifications(data, contentSources) {
+    // Track extracted content based on available data
+    if (data.discussion?.body) {
+      contentSources.extracted.push(
+        'summary',
+        'objectives',
+        'decisions',
+        'actionItems'
+      );
+    }
+    if (data.prs && data.prs.length > 0) {
+      contentSources.extracted.push(
+        'prTitle',
+        'prNumber',
+        'prAuthor',
+        'recentUpdates',
+        'completedItems'
+      );
+    }
+    if (data.issues && data.issues.length > 0) {
+      contentSources.extracted.push(
+        'recentUpdates',
+        'completedItems',
+        'inProgressItems'
+      );
+    }
+
+    // Track inferred content
+    contentSources.inferred.push(
+      'progress',
+      'currentPhase',
+      'meetingType',
+      'duration'
+    );
+
+    // Track generated fallbacks
+    contentSources.generated.push(
+      'risksBlockers',
+      'budgetStatus',
+      'upcomingItems'
+    );
+
+    // Add stakeholders as extracted if we have real participants
+    const uniqueContributors = this.getUniqueContributors(data);
+    if (uniqueContributors.length > 0) {
+      contentSources.extracted.push('stakeholders');
+    } else {
+      contentSources.generated.push('stakeholders');
+    }
   }
 
   getUniqueContributors(data) {
@@ -1259,35 +1568,40 @@ Bad examples: "database", "mobile", "security" (too generic)`;
   generateSummarySection(data) {
     if (data.discussion?.body) {
       // Use first 500 characters as a summary
-      const summary = data.discussion.body.length > 500 
-        ? data.discussion.body.substring(0, 500) + '...'
-        : data.discussion.body;
+      const summary =
+        data.discussion.body.length > 500
+          ? data.discussion.body.substring(0, 500) + '...'
+          : data.discussion.body;
       return summary;
     }
-    
+
     if (data.prs && data.prs.length > 0) {
-      return `Summary of ${data.prs.length} pull request${data.prs.length > 1 ? 's' : ''} and related changes.`;
+      return `Summary of ${data.prs.length} pull request${
+        data.prs.length > 1 ? 's' : ''
+      } and related changes.`;
     }
-    
+
     if (data.issues && data.issues.length > 0) {
-      return `Summary of ${data.issues.length} issue${data.issues.length > 1 ? 's' : ''} and their resolution status.`;
+      return `Summary of ${data.issues.length} issue${
+        data.issues.length > 1 ? 's' : ''
+      } and their resolution status.`;
     }
-    
+
     return 'Project summary will be generated based on the collected data and analysis.';
   }
 
   generateObjectivesSection(data) {
     const content = data.discussion?.body || '';
-    
+
     // Look for objectives, goals, or aims in the content
     const objectivePatterns = [
       /(?:objectives?|goals?|aims?):\s*([\s\S]*?)(?:\n\n|$)/i,
-      /(?:we aim to|goal is to|objective is to)\s*([^\n]+)/gi
+      /(?:we aim to|goal is to|objective is to)\s*([^\n]+)/gi,
     ];
-    
+
     const objectives = [];
-    
-    objectivePatterns.forEach(pattern => {
+
+    objectivePatterns.forEach((pattern) => {
       const matches = content.match(pattern);
       if (matches) {
         if (pattern.global) {
@@ -1297,11 +1611,11 @@ Bad examples: "database", "mobile", "security" (too generic)`;
         }
       }
     });
-    
+
     if (objectives.length > 0) {
       return objectives.map((obj, index) => `${index + 1}. ${obj}`).join('\n');
     }
-    
+
     // Fallback based on discussion title
     const title = data.discussion?.title || 'Project Goals';
     return `1. Complete ${title.toLowerCase()}\n2. Ensure quality and timely delivery\n3. Maintain stakeholder alignment`;
@@ -1309,10 +1623,13 @@ Bad examples: "database", "mobile", "security" (too generic)`;
 
   generateCurrentPhase(data) {
     const content = data.discussion?.body?.toLowerCase() || '';
-    
+
     if (content.includes('planning') || content.includes('design')) {
       return 'Planning & Design';
-    } else if (content.includes('development') || content.includes('implement')) {
+    } else if (
+      content.includes('development') ||
+      content.includes('implement')
+    ) {
       return 'Development';
     } else if (content.includes('testing') || content.includes('qa')) {
       return 'Testing & QA';
@@ -1327,15 +1644,15 @@ Bad examples: "database", "mobile", "security" (too generic)`;
 
   generateNextMilestone(data) {
     const content = data.discussion?.body || '';
-    
+
     // Look for milestone or deadline mentions
     const milestonePattern = /(?:milestone|deadline|due|target):\s*([^\n]+)/i;
     const match = content.match(milestonePattern);
-    
+
     if (match) {
       return match[1].trim();
     }
-    
+
     // Generate next milestone date (2 weeks from now)
     const nextMilestone = new Date();
     nextMilestone.setDate(nextMilestone.getDate() + 14);
@@ -1344,76 +1661,82 @@ Bad examples: "database", "mobile", "security" (too generic)`;
 
   generateStakeholdersSection(data) {
     const stakeholders = new Set();
-    
+
     // Add discussion participants
     if (data.discussion?.author) {
       stakeholders.add(data.discussion.author);
     }
-    
+
     // Add contributors from PRs and issues
-    this.getUniqueContributors(data).forEach(contributor => {
+    this.getUniqueContributors(data).forEach((contributor) => {
       stakeholders.add(contributor);
     });
-    
+
     // Add common stakeholder roles if no specific ones found
     if (stakeholders.size === 0) {
       return '- Project Manager\n- Development Team\n- Quality Assurance\n- Product Owner';
     }
-    
-    const stakeholderList = Array.from(stakeholders).map(stakeholder => `- @${stakeholder}`).join('\n');
-    
+
+    const stakeholderList = Array.from(stakeholders)
+      .map((stakeholder) => `- @${stakeholder}`)
+      .join('\n');
+
     // Add role-based stakeholders
     const additionalStakeholders = [
       '- Product Owner',
       '- Development Team',
-      '- Quality Assurance Team'
+      '- Quality Assurance Team',
     ];
-    
+
     return stakeholderList + '\n' + additionalStakeholders.join('\n');
   }
 
   generateRecentUpdatesSection(data) {
     const updates = [];
-    
+
     // Add discussion-based updates
     if (data.discussion) {
-      updates.push(`- Discussion #${data.discussion.number}: ${data.discussion.title}`);
+      updates.push(
+        `- Discussion #${data.discussion.number}: ${data.discussion.title}`
+      );
     }
-    
+
     // Add PR updates
     if (data.prs && data.prs.length > 0) {
-      data.prs.forEach(pr => {
+      data.prs.forEach((pr) => {
         updates.push(`- PR #${pr.number}: ${pr.title} (${pr.status})`);
       });
     }
-    
+
     // Add issue updates
     if (data.issues && data.issues.length > 0) {
-      data.issues.forEach(issue => {
-        updates.push(`- Issue #${issue.number}: ${issue.title} (${issue.state})`);
+      data.issues.forEach((issue) => {
+        updates.push(
+          `- Issue #${issue.number}: ${issue.title} (${issue.state})`
+        );
       });
     }
-    
+
     if (updates.length === 0) {
       return '- Recent project updates will be listed here\n- Progress on key initiatives\n- Important announcements';
     }
-    
+
     return updates.join('\n');
   }
 
   generateActionItemsSection(data) {
     const content = data.discussion?.body || '';
-    
+
     // Look for action items in various formats
     const actionPatterns = [
       /(?:action items?|tasks?|todos?):\s*([\s\S]*?)(?:\n\n|$)/i,
       /(?:action|todo|task):\s*([^\n]+)/gi,
-      /-\s*\[\s*\]\s*([^\n]+)/gi // Checkbox format
+      /-\s*\[\s*\]\s*([^\n]+)/gi, // Checkbox format
     ];
-    
+
     const actionItems = [];
-    
-    actionPatterns.forEach(pattern => {
+
+    actionPatterns.forEach((pattern) => {
       let match;
       if (pattern.global) {
         while ((match = pattern.exec(content)) !== null) {
@@ -1423,94 +1746,127 @@ Bad examples: "database", "mobile", "security" (too generic)`;
         match = content.match(pattern);
         if (match) {
           // Split multiline action items
-          const items = match[1].split('\n').filter(item => item.trim());
-          actionItems.push(...items.map(item => item.trim()));
+          const items = match[1].split('\n').filter((item) => item.trim());
+          actionItems.push(...items.map((item) => item.trim()));
         }
       }
     });
-    
+
     if (actionItems.length > 0) {
-      return actionItems.map((item, index) => `${index + 1}. ${item}`).join('\n');
+      return actionItems
+        .map((item, index) => `${index + 1}. ${item}`)
+        .join('\n');
     }
-    
+
     return '1. Review and validate current progress\n2. Address any outstanding issues\n3. Plan next phase activities\n4. Update stakeholders on status';
   }
 
   // Additional stakeholder update template helper methods
   generateProgressSummary(data) {
     const progress = this.calculateProgress(data);
-    return `Project is currently ${progress}% complete. ${this.generateCurrentPhase(data)} phase is underway with good momentum.`;
+    return `Project is currently ${progress}% complete. ${this.generateCurrentPhase(
+      data
+    )} phase is underway with good momentum.`;
   }
 
   calculateProgress(data) {
     // Simple progress calculation based on completed vs total items
-    const completedPRs = data.prs?.filter(pr => pr.status === 'merged').length || 0;
+    const completedPRs =
+      data.prs?.filter((pr) => pr.status === 'merged').length || 0;
     const totalPRs = data.prs?.length || 1; // Avoid division by zero
-    const completedIssues = data.issues?.filter(issue => issue.state === 'closed').length || 0;
+    const completedIssues =
+      data.issues?.filter((issue) => issue.state === 'closed').length || 0;
     const totalIssues = data.issues?.length || 1;
-    
-    const avgProgress = ((completedPRs / totalPRs) + (completedIssues / totalIssues)) / 2;
+
+    const avgProgress =
+      (completedPRs / totalPRs + completedIssues / totalIssues) / 2;
     return Math.round(avgProgress * 100);
   }
 
   generateAccomplishments(data) {
     const accomplishments = [];
-    
+
     if (data.prs && data.prs.length > 0) {
-      const mergedPRs = data.prs.filter(pr => pr.status === 'merged');
+      const mergedPRs = data.prs.filter((pr) => pr.status === 'merged');
       if (mergedPRs.length > 0) {
-        accomplishments.push(`✅ Successfully merged ${mergedPRs.length} pull request${mergedPRs.length > 1 ? 's' : ''}`);
+        accomplishments.push(
+          `✅ Successfully merged ${mergedPRs.length} pull request${
+            mergedPRs.length > 1 ? 's' : ''
+          }`
+        );
       }
     }
-    
+
     if (data.issues && data.issues.length > 0) {
-      const closedIssues = data.issues.filter(issue => issue.state === 'closed');
+      const closedIssues = data.issues.filter(
+        (issue) => issue.state === 'closed'
+      );
       if (closedIssues.length > 0) {
-        accomplishments.push(`✅ Resolved ${closedIssues.length} issue${closedIssues.length > 1 ? 's' : ''}`);
+        accomplishments.push(
+          `✅ Resolved ${closedIssues.length} issue${
+            closedIssues.length > 1 ? 's' : ''
+          }`
+        );
       }
     }
-    
+
     if (data.discussion) {
-      accomplishments.push(`✅ Documented progress and decisions in discussion #${data.discussion.number}`);
+      accomplishments.push(
+        `✅ Documented progress and decisions in discussion #${data.discussion.number}`
+      );
     }
-    
-    return accomplishments.length > 0 ? accomplishments.join('\n') : '✅ Project milestones achieved according to timeline\n✅ Team collaboration and communication maintained';
+
+    return accomplishments.length > 0
+      ? accomplishments.join('\n')
+      : '✅ Project milestones achieved according to timeline\n✅ Team collaboration and communication maintained';
   }
 
   generateCompletedItems(data) {
     const completed = [];
-    
+
     if (data.prs) {
-      data.prs.filter(pr => pr.status === 'merged').forEach(pr => {
-        completed.push(`- ✅ ${pr.title} (PR #${pr.number})`);
-      });
+      data.prs
+        .filter((pr) => pr.status === 'merged')
+        .forEach((pr) => {
+          completed.push(`- ✅ ${pr.title} (PR #${pr.number})`);
+        });
     }
-    
+
     if (data.issues) {
-      data.issues.filter(issue => issue.state === 'closed').forEach(issue => {
-        completed.push(`- ✅ ${issue.title} (Issue #${issue.number})`);
-      });
+      data.issues
+        .filter((issue) => issue.state === 'closed')
+        .forEach((issue) => {
+          completed.push(`- ✅ ${issue.title} (Issue #${issue.number})`);
+        });
     }
-    
-    return completed.length > 0 ? completed.join('\n') : '- ✅ Core functionality implemented\n- ✅ Initial testing completed\n- ✅ Documentation updated';
+
+    return completed.length > 0
+      ? completed.join('\n')
+      : '- ✅ Core functionality implemented\n- ✅ Initial testing completed\n- ✅ Documentation updated';
   }
 
   generateInProgressItems(data) {
     const inProgress = [];
-    
+
     if (data.prs) {
-      data.prs.filter(pr => pr.status === 'open').forEach(pr => {
-        inProgress.push(`- 🔄 ${pr.title} (PR #${pr.number})`);
-      });
+      data.prs
+        .filter((pr) => pr.status === 'open')
+        .forEach((pr) => {
+          inProgress.push(`- 🔄 ${pr.title} (PR #${pr.number})`);
+        });
     }
-    
+
     if (data.issues) {
-      data.issues.filter(issue => issue.state === 'open').forEach(issue => {
-        inProgress.push(`- 🔄 ${issue.title} (Issue #${issue.number})`);
-      });
+      data.issues
+        .filter((issue) => issue.state === 'open')
+        .forEach((issue) => {
+          inProgress.push(`- 🔄 ${issue.title} (Issue #${issue.number})`);
+        });
     }
-    
-    return inProgress.length > 0 ? inProgress.join('\n') : '- 🔄 Feature development in progress\n- 🔄 Code review and testing underway\n- 🔄 Integration with existing systems';
+
+    return inProgress.length > 0
+      ? inProgress.join('\n')
+      : '- 🔄 Feature development in progress\n- 🔄 Code review and testing underway\n- 🔄 Integration with existing systems';
   }
 
   generateUpcomingItems(data) {
@@ -1531,23 +1887,25 @@ Bad examples: "database", "mobile", "security" (too generic)`;
 
   generateDecisionsNeeded(data) {
     const content = data.discussion?.body || '';
-    
+
     // Look for questions or decision points
     const decisionPatterns = [
       /\?(.*)/g, // Questions
-      /(?:decide|decision|should we|which option)/gi // Decision keywords
+      /(?:decide|decision|should we|which option)/gi, // Decision keywords
     ];
-    
+
     const decisions = [];
-    decisionPatterns.forEach(pattern => {
+    decisionPatterns.forEach((pattern) => {
       let match;
       while ((match = pattern.exec(content)) !== null) {
         decisions.push(match[0].trim());
       }
     });
-    
-    return decisions.length > 0 
-      ? decisions.map((decision, index) => `${index + 1}. ${decision}`).join('\n')
+
+    return decisions.length > 0
+      ? decisions
+          .map((decision, index) => `${index + 1}. ${decision}`)
+          .join('\n')
       : '1. Approve next phase budget allocation\n2. Finalize integration strategy\n3. Set deployment timeline';
   }
 
@@ -1561,8 +1919,11 @@ Bad examples: "database", "mobile", "security" (too generic)`;
   generateOverallReviewStatus(data) {
     if (data.prs && data.prs.length > 0) {
       const pr = data.prs[0];
-      return pr.status === 'merged' ? 'Approved and Merged' : 
-             pr.status === 'open' ? 'Under Review' : 'Pending';
+      return pr.status === 'merged'
+        ? 'Approved and Merged'
+        : pr.status === 'open'
+        ? 'Under Review'
+        : 'Pending';
     }
     return 'Awaiting Review';
   }
@@ -1570,7 +1931,13 @@ Bad examples: "database", "mobile", "security" (too generic)`;
   generateReviewSummary(data) {
     if (data.prs && data.prs.length > 0) {
       const pr = data.prs[0];
-      return `Pull request #${pr.number} "${pr.title}" has been reviewed. The changes introduce ${pr.additions || 0} additions and ${pr.deletions || 0} deletions across ${pr.files || 0} files.`;
+      return `Pull request #${pr.number} "${
+        pr.title
+      }" has been reviewed. The changes introduce ${
+        pr.additions || 0
+      } additions and ${pr.deletions || 0} deletions across ${
+        pr.files || 0
+      } files.`;
     }
     return 'Comprehensive review of the proposed changes has been conducted with attention to code quality, security, and performance considerations.';
   }
@@ -1691,6 +2058,42 @@ Bad examples: "database", "mobile", "security" (too generic)`;
 ${data.sources
   .map((source) => `- ${source.charAt(0).toUpperCase() + source.slice(1)}`)
   .join('\n')}
+
+### Template Variable Processing Method
+
+**Content Extraction Strategy:**
+1. **Primary:** Extract actual content from source data using pattern matching
+2. **Secondary:** Use intelligent defaults based on available context
+3. **Fallback:** Generate structured placeholder content when no data available
+
+**Traceability Classifications:**
+- 🔍 **EXTRACTED** - Content parsed directly from source materials
+- 🧠 **INFERRED** - Content derived from available data using algorithms
+- 📝 **GENERATED** - Placeholder content when source data insufficient
+
+### Content Source Audit Trail
+
+**Variables with EXTRACTED content (when available):**
+- \`{summary}\` - First 500 characters from discussion body
+- \`{objectives}\` - Pattern matched from "objectives:", "goals:", "aims:"
+- \`{decisions}\` - Keywords: "decided:", "decision:", "agreed:"
+- \`{actionItems}\` - Patterns: "action:", "todo:", "task:", checkbox formats
+- \`{agenda}\` - Sections: "agenda:", "topics:", "items:"
+- \`{stakeholders}\` - Actual participants from discussions/PRs/issues
+- \`{recentUpdates}\` - Real PR/issue titles and status
+- \`{completedItems}\` - Merged PRs and closed issues
+- \`{inProgressItems}\` - Open PRs and issues
+- \`{progress}\` - Calculated from completed vs total items
+
+**Variables with INFERRED content:**
+- \`{currentPhase}\` - Keyword analysis with fallback
+- \`{meetingType}\` - Label and title analysis
+- \`{duration}\` - Content length-based estimation
+
+**Variables with GENERATED fallbacks:**
+- \`{risksBlockers}\` - Generic project risks when none detected
+- \`{budgetStatus}\` - Standard budget message
+- \`{upcomingItems}\` - Common next steps when none specified
 
 ${
   data.discussion
@@ -1830,6 +2233,45 @@ ${data.jiraIssues
   - Jira Tickets: ${data.jiraIssues.length}
   - ISSUE_NUMBERS: ${process.env.ISSUE_NUMBERS || 'Not set'}
   - JIRA_KEYS: ${process.env.JIRA_KEYS || 'Not set'}
+
+${
+  this.auditTrail?.templateVariables
+    ? `## Template Variable Processing Audit
+
+**Actual Content Extraction Results:**
+
+🔍 **EXTRACTED Variables (${
+        this.auditTrail.templateVariables.extracted.length
+      }):**
+${this.auditTrail.templateVariables.extracted
+  .map((v) => `- \`{${v}}\``)
+  .join('\n')}
+
+🧠 **INFERRED Variables (${
+        this.auditTrail.templateVariables.inferred.length
+      }):**
+${this.auditTrail.templateVariables.inferred
+  .map((v) => `- \`{${v}}\``)
+  .join('\n')}
+
+📝 **GENERATED Variables (${
+        this.auditTrail.templateVariables.generated.length
+      }):**
+${this.auditTrail.templateVariables.generated
+  .map((v) => `- \`{${v}}\``)
+  .join('\n')}
+
+**Content Authenticity Score:** ${Math.round(
+        (this.auditTrail.templateVariables.extracted.length /
+          (this.auditTrail.templateVariables.extracted.length +
+            this.auditTrail.templateVariables.inferred.length +
+            this.auditTrail.templateVariables.generated.length)) *
+          100
+      )}% (Percentage of content directly extracted from sources)
+
+`
+    : ''
+}
 
 ---
 

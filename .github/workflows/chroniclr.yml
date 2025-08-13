@@ -249,7 +249,12 @@ jobs:
           DISCUSSION_AUTHOR: ${{ steps.discussion.outputs.author }}
           DISCUSSION_URL: ${{ steps.discussion.outputs.url }}
           DISCUSSION_COMMENTS_COUNT: ${{ steps.discussion.outputs.comments_count }}
+          # Rate limiting strategy - prefer templates for large workloads
+          PREFER_TEMPLATES: ${{ steps.doc-types.outputs.document_types && contains(steps.doc-types.outputs.document_types, ' ') && 'true' || 'false' }}
         run: |
+          echo "🚀 Starting documentation generation..."
+          echo "📊 Processing document types: $DOC_TYPE"
+          echo "📝 Template preference: $PREFER_TEMPLATES"
           npm run generate-document
 
       - name: Ensure labels exist
@@ -352,10 +357,26 @@ jobs:
             - **Template System:** Markdown templates with variable substitution
             - **Quality Assurance:** Automatic fallback to structured templates if AI generation fails
 
+            ### 🔍 Content Traceability & Compliance
+            **Content Source Classification:**
+            - 🔍 **EXTRACTED** - Content parsed directly from source materials (discussions, PRs, issues)
+            - 🧠 **INFERRED** - Content derived from available data using algorithms
+            - 📝 **GENERATED** - Structured fallback content when source data insufficient
+
+            **Audit Trail:** Each document includes detailed source attribution and processing metadata in `generation-metadata.md`
+
+            **Compliance Features:**
+            - Complete source traceability for all generated content
+            - Content authenticity scoring (% of extracted vs. generated content)
+            - Pattern matching evidence for extracted information
+            - Processing timestamps and environment details
+
             ---
             🤖 **This PR was automatically created by Chroniclr**
 
             📋 **Supporting Documents:** Check the `generated/` folder for a detailed `generation-metadata.md` file containing comprehensive information about sources, processing details, and document lineage.
+
+            🔍 **Audit Information:** See `/docs/Content-Traceability.md` for complete traceability methodology and compliance guidelines.
 
             > **Note:** Re-running the same workflow parameters will update this PR instead of creating a new one.
           branch: ${{ steps.branch-name.outputs.name }}
