@@ -43,7 +43,9 @@ class AIDocumentGenerator {
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        core.info(`Making AI API request... (attempt ${attempt + 1}/${maxRetries + 1})`);
+        core.info(
+          `Making AI API request... (attempt ${attempt + 1}/${maxRetries + 1})`
+        );
 
         const response = await fetch(`${this.baseURL}/chat/completions`, {
           method: 'POST',
@@ -56,7 +58,8 @@ class AIDocumentGenerator {
             messages: [
               {
                 role: 'system',
-                content: 'You are a professional documentation generator. Create well-structured, comprehensive documents based on the provided data sources.',
+                content:
+                  'You are a professional documentation generator. Create well-structured, comprehensive documents based on the provided data sources.',
               },
               {
                 role: 'user',
@@ -97,7 +100,7 @@ class AIDocumentGenerator {
     const sourceModules = (process.env.SOURCE_MODULES || 'discussion')
       .split(',')
       .map((s) => s.trim());
-    
+
     const collectedData = {
       discussion: null,
       prs: [],
@@ -116,19 +119,25 @@ class AIDocumentGenerator {
         url: process.env.DISCUSSION_URL || '',
         commentsCount: parseInt(process.env.DISCUSSION_COMMENTS_COUNT) || 0,
       };
-      core.info(`✅ Collected discussion data: #${collectedData.discussion.number}`);
+      core.info(
+        `✅ Collected discussion data: #${collectedData.discussion.number}`
+      );
     }
 
     // Collect PR Data
     if (sourceModules.includes('pr') && process.env.PR_NUMBERS) {
-      const prNumbers = process.env.PR_NUMBERS.split(',').map((n) => n.trim()).filter((n) => n);
+      const prNumbers = process.env.PR_NUMBERS.split(',')
+        .map((n) => n.trim())
+        .filter((n) => n);
       collectedData.prs = await this.prClient.fetchPullRequests(prNumbers);
       core.info(`✅ Collected ${collectedData.prs.length} PRs`);
     }
 
     // Collect Issues Data
     if (sourceModules.includes('issues') && process.env.ISSUE_NUMBERS) {
-      const issueNumbers = process.env.ISSUE_NUMBERS.split(',').map((n) => n.trim()).filter((n) => n);
+      const issueNumbers = process.env.ISSUE_NUMBERS.split(',')
+        .map((n) => n.trim())
+        .filter((n) => n);
       collectedData.issues = await this.issuesClient.fetchIssues(issueNumbers);
       core.info(`✅ Collected ${collectedData.issues.length} issues`);
     }
@@ -136,7 +145,9 @@ class AIDocumentGenerator {
     // Collect Jira Data
     if (sourceModules.includes('jira') && process.env.JIRA_KEYS) {
       const jiraClient = this.getJiraClient();
-      const jiraKeys = process.env.JIRA_KEYS.split(',').map((k) => k.trim()).filter((k) => k);
+      const jiraKeys = process.env.JIRA_KEYS.split(',')
+        .map((k) => k.trim())
+        .filter((k) => k);
       collectedData.jiraIssues = await jiraClient.fetchJiraIssues(jiraKeys);
       core.info(`✅ Collected ${collectedData.jiraIssues.length} Jira issues`);
     }
@@ -168,10 +179,19 @@ class AIDocumentGenerator {
         prompt += `- **URL**: ${pr.url}\n`;
         prompt += `- **Files Changed**: ${pr.files.length}\n`;
         if (pr.files.length > 0) {
-          const totalAdditions = pr.files.reduce((sum, file) => sum + file.additions, 0);
-          const totalDeletions = pr.files.reduce((sum, file) => sum + file.deletions, 0);
+          const totalAdditions = pr.files.reduce(
+            (sum, file) => sum + file.additions,
+            0
+          );
+          const totalDeletions = pr.files.reduce(
+            (sum, file) => sum + file.deletions,
+            0
+          );
           prompt += `- **Lines**: +${totalAdditions}, -${totalDeletions}\n`;
-          prompt += `- **Key Files**: ${pr.files.slice(0, 5).map((f) => f.filename).join(', ')}\n`;
+          prompt += `- **Key Files**: ${pr.files
+            .slice(0, 5)
+            .map((f) => f.filename)
+            .join(', ')}\n`;
         }
         if (pr.jiraKeys.length > 0) {
           prompt += `- **Jira Keys**: ${pr.jiraKeys.join(', ')}\n`;
@@ -197,10 +217,14 @@ class AIDocumentGenerator {
           prompt += `- **Closed**: ${issue.closedAt}\n`;
         }
         if (issue.labels.length > 0) {
-          prompt += `- **Labels**: ${issue.labels.map((l) => l.name).join(', ')}\n`;
+          prompt += `- **Labels**: ${issue.labels
+            .map((l) => l.name)
+            .join(', ')}\n`;
         }
         if (issue.assignees.length > 0) {
-          prompt += `- **Assignees**: ${issue.assignees.map((a) => '@' + a).join(', ')}\n`;
+          prompt += `- **Assignees**: ${issue.assignees
+            .map((a) => '@' + a)
+            .join(', ')}\n`;
         }
         if (issue.milestone) {
           prompt += `- **Milestone**: ${issue.milestone.title}\n`;
@@ -252,7 +276,14 @@ class AIDocumentGenerator {
     prompt += `2. **Synthesizes with AI** - Provide intelligent analysis, insights, and professional formatting\n`;
     prompt += `3. **Follows template structure** - Use the template format below as a guide\n`;
     prompt += `4. **Links to sources** - Reference specific PRs, issues, discussions, and Jira tickets\n`;
-    prompt += `5. **Provides actionable content** - Extract decisions, action items, and next steps from the data\n\n`;
+    prompt += `5. **Provides actionable content** - Extract decisions, action items, and next steps from the data\n`;
+    prompt += `6. **Replace ALL placeholders** - Use actual dates (${
+      new Date().toISOString().split('T')[0]
+    }), real status values, and concrete information. Do NOT leave [Insert...] or [TBD] placeholders.\n`;
+    if (docType === 'meeting-notes') {
+      prompt += `7. **Previous Meeting Notes** - Only include a reference to previous meeting notes if you can verify they exist. Otherwise, omit this reference entirely.\n`;
+    }
+    prompt += `\n`;
 
     prompt += `Template Structure:\n${template}`;
 
@@ -260,7 +291,12 @@ class AIDocumentGenerator {
   }
 
   async loadTemplate(docType) {
-    const templatePath = path.join(process.cwd(), 'src', 'templates', `${docType}.md`);
+    const templatePath = path.join(
+      process.cwd(),
+      'src',
+      'templates',
+      `${docType}.md`
+    );
     try {
       const template = await fs.readFile(templatePath, 'utf8');
       return template;
@@ -273,9 +309,14 @@ class AIDocumentGenerator {
   async generateDocument() {
     try {
       const docTypesString = process.env.DOC_TYPE || 'summary';
-      const docTypes = docTypesString.split(' ').map((type) => type.trim()).filter((type) => type);
+      const docTypes = docTypesString
+        .split(' ')
+        .map((type) => type.trim())
+        .filter((type) => type);
 
-      core.info(`Processing ${docTypes.length} document types: ${docTypes.join(', ')}`);
+      core.info(
+        `Processing ${docTypes.length} document types: ${docTypes.join(', ')}`
+      );
 
       // Collect data from all enabled sources
       const data = await this.collectDataFromSources();
@@ -285,22 +326,21 @@ class AIDocumentGenerator {
       for (const docType of docTypes) {
         try {
           core.info(`Generating ${docType} document...`);
-          
+
           // Load template
           const template = await this.loadTemplate(docType);
-          
+
           // Create AI prompt
           const prompt = this.createAIPrompt(docType, data, template);
-          
+
           // Generate content with AI
           const aiContent = await this.generateCompletion(prompt);
-          
+
           // Save document
           const result = await this.saveDocument(docType, data, aiContent);
           if (result) {
             results.push(result);
           }
-          
         } catch (error) {
           core.error(`Failed to generate ${docType}: ${error.message}`);
           // Continue with other documents
@@ -311,9 +351,10 @@ class AIDocumentGenerator {
         throw new Error('No documents were generated successfully');
       }
 
-      core.info(`✅ Successfully generated ${results.length}/${docTypes.length} documents`);
+      core.info(
+        `✅ Successfully generated ${results.length}/${docTypes.length} documents`
+      );
       return results;
-
     } catch (error) {
       core.error(`Document generation failed: ${error.message}`);
       throw error;
@@ -324,7 +365,18 @@ class AIDocumentGenerator {
     if (!title) return 'general';
 
     // Extract meaningful keywords, skip common words
-    const skipWords = ['the', 'and', 'for', 'with', 'fix', 'add', 'update', 'improve', 'bug', 'issue'];
+    const skipWords = [
+      'the',
+      'and',
+      'for',
+      'with',
+      'fix',
+      'add',
+      'update',
+      'improve',
+      'bug',
+      'issue',
+    ];
     const words = title
       .toLowerCase()
       .replace(/[^a-z0-9\s]/g, '')
@@ -333,12 +385,14 @@ class AIDocumentGenerator {
       .slice(0, 3);
 
     if (words.length === 0) {
-      return title
-        .toLowerCase()
-        .replace(/[^a-z0-9\s]/g, '')
-        .split(/\s+/)
-        .slice(0, 3)
-        .join('-') || 'general';
+      return (
+        title
+          .toLowerCase()
+          .replace(/[^a-z0-9\s]/g, '')
+          .split(/\s+/)
+          .slice(0, 3)
+          .join('-') || 'general'
+      );
     }
 
     return words.join('-').substring(0, 20);
@@ -384,13 +438,146 @@ class AIDocumentGenerator {
     } else if (data.prs.length > 0) {
       return `${docType}-pr-${data.prs.map((pr) => pr.number).join('-')}.md`;
     } else if (data.issues.length > 0) {
-      return `${docType}-issues-${data.issues.map((i) => i.number).join('-')}.md`;
+      return `${docType}-issues-${data.issues
+        .map((i) => i.number)
+        .join('-')}.md`;
     } else if (data.jiraIssues.length > 0) {
-      return `${docType}-jira-${data.jiraIssues.map((j) => j.key).join('-')}.md`;
+      return `${docType}-jira-${data.jiraIssues
+        .map((j) => j.key)
+        .join('-')}.md`;
     } else {
       const timestamp = Date.now();
       return `${docType}-${timestamp}.md`;
     }
+  }
+
+  /**
+   * Check if there are previous meeting notes in the generated folder
+   */
+  async findPreviousMeetingNotes(data) {
+    try {
+      const generatedPath = path.join(process.cwd(), 'generated');
+
+      // Get all folders in generated directory
+      const folders = await fs.readdir(generatedPath, { withFileTypes: true });
+      const dateFolders = folders
+        .filter((dirent) => dirent.isDirectory())
+        .map((dirent) => dirent.name)
+        .filter((name) => name.match(/^\d{4}-\d{2}-\d{2}-/))
+        .sort()
+        .reverse(); // Most recent first
+
+      // Look for meeting notes files in previous folders
+      for (const folder of dateFolders) {
+        const folderPath = path.join(generatedPath, folder);
+        try {
+          const files = await fs.readdir(folderPath);
+          const meetingNotesFiles = files.filter(
+            (file) => file.startsWith('meeting-notes-') && file.endsWith('.md')
+          );
+
+          if (meetingNotesFiles.length > 0) {
+            // Return the path to the most recent meeting notes file
+            const relativePath = `generated/${folder}/${meetingNotesFiles[0]}`;
+            return relativePath;
+          }
+        } catch (error) {
+          // Skip folders we can't read
+          continue;
+        }
+      }
+
+      return null; // No previous meeting notes found
+    } catch (error) {
+      core.warning(
+        `Failed to check for previous meeting notes: ${error.message}`
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Post-process AI-generated content to replace any remaining placeholder text
+   */
+  async postProcessContent(content, data, docType) {
+    const currentDate = new Date().toISOString().split('T')[0];
+    const currentDateTime = new Date().toISOString();
+    const currentTime =
+      new Date().toLocaleTimeString('en-US', {
+        hour12: false,
+        timeZone: 'UTC',
+        hour: '2-digit',
+        minute: '2-digit',
+      }) + ' UTC';
+
+    // Replace common placeholder patterns that AI might generate
+    let processedContent = content
+      // Date placeholders
+      .replace(/\[Insert Current Date\]/g, currentDate)
+      .replace(/\[Insert Date\]/g, currentDate)
+      .replace(/\[Current Date\]/g, currentDate)
+      .replace(/\[Date\]/g, currentDate)
+      .replace(/\{date\}/g, currentDate)
+      .replace(/\{currentDate\}/g, currentDate)
+      .replace(/\{lastUpdated\}/g, currentDate)
+
+      // Time placeholders
+      .replace(/\[Insert Current Time\]/g, currentTime)
+      .replace(/\[Current Time\]/g, currentTime)
+      .replace(/\{time\}/g, currentTime)
+
+      // Status placeholders
+      .replace(/\[Insert Status\]/g, 'Active')
+      .replace(/\[Status\]/g, 'Active')
+      .replace(/\{status\}/g, 'Active')
+
+      // Title placeholders
+      .replace(
+        /\{title\}/g,
+        data.discussion?.title || 'Generated Documentation'
+      )
+
+      // Discussion-specific placeholders
+      .replace(/\{discussionNumber\}/g, data.discussion?.number || '')
+      .replace(/\{discussionUrl\}/g, data.discussion?.url || '')
+
+      // Generic placeholders that might appear
+      .replace(/\[Insert.*?\]/g, 'TBD')
+      .replace(/\[TBD\]/g, 'TBD')
+      .replace(/\[TODO\]/g, 'TBD');
+
+    // Handle previous meeting notes logic for meeting notes documents
+    if (docType === 'meeting-notes') {
+      const previousNotesPath = await this.findPreviousMeetingNotes(data);
+
+      if (previousNotesPath) {
+        // Replace the placeholder with actual link
+        processedContent = processedContent.replace(
+          /\{previousMeetingNotes\}/g,
+          previousNotesPath
+        );
+        // Also handle cases where AI might generate the link directly
+        processedContent = processedContent.replace(
+          /\[Previous Meeting Notes\]\([^)]*\)/g,
+          `[Previous Meeting Notes](${previousNotesPath})`
+        );
+      } else {
+        // Remove the previous meeting notes line entirely
+        processedContent = processedContent.replace(
+          /^\s*-\s*\[Previous Meeting Notes\].*$/gm,
+          ''
+        );
+        // Remove the placeholder as well
+        processedContent = processedContent.replace(
+          /\{previousMeetingNotes\}/g,
+          ''
+        );
+        // Clean up any empty lines that might be left
+        processedContent = processedContent.replace(/\n\n\n+/g, '\n\n');
+      }
+    }
+
+    return processedContent;
   }
 
   async saveDocument(docType, data, content) {
@@ -403,7 +590,14 @@ class AIDocumentGenerator {
       const fileName = this.generateFileName(docType, data);
       const filePath = path.join(outputDir, fileName);
 
-      await fs.writeFile(filePath, content, 'utf8');
+      // Post-process the content to replace any remaining placeholders
+      const processedContent = await this.postProcessContent(
+        content,
+        data,
+        docType
+      );
+
+      await fs.writeFile(filePath, processedContent, 'utf8');
 
       core.info(`✅ Generated document: ${fileName}`);
       return { filePath, fileName, content };
