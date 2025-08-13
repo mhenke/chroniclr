@@ -939,6 +939,15 @@ Bad examples: "database", "mobile", "security" (too generic)`;
       this.generatePreviousMeetingNotesUrl(data)
     );
 
+    // Replace general template variables for summaries and other documents
+    content = content.replace(/{summary}/g, this.generateSummarySection(data));
+    content = content.replace(/{objectives}/g, this.generateObjectivesSection(data));
+    content = content.replace(/{currentPhase}/g, this.generateCurrentPhase(data));
+    content = content.replace(/{nextMilestone}/g, this.generateNextMilestone(data));
+    content = content.replace(/{stakeholders}/g, this.generateStakeholdersSection(data));
+    content = content.replace(/{recentUpdates}/g, this.generateRecentUpdatesSection(data));
+    content = content.replace(/{actionItems}/g, this.generateActionItemsSection(data));
+
     return content;
   }
 
@@ -1187,6 +1196,187 @@ Bad examples: "database", "mobile", "security" (too generic)`;
       process.env.GITHUB_REPOSITORY || 'owner/repo'
     }`;
     return `${repoUrl}/blob/main/generated/meeting-notes/previous-meeting.md`;
+  }
+
+  // General document template helper methods
+  generateSummarySection(data) {
+    if (data.discussion?.body) {
+      // Use first 500 characters as a summary
+      const summary = data.discussion.body.length > 500 
+        ? data.discussion.body.substring(0, 500) + '...'
+        : data.discussion.body;
+      return summary;
+    }
+    
+    if (data.prs && data.prs.length > 0) {
+      return `Summary of ${data.prs.length} pull request${data.prs.length > 1 ? 's' : ''} and related changes.`;
+    }
+    
+    if (data.issues && data.issues.length > 0) {
+      return `Summary of ${data.issues.length} issue${data.issues.length > 1 ? 's' : ''} and their resolution status.`;
+    }
+    
+    return 'Project summary will be generated based on the collected data and analysis.';
+  }
+
+  generateObjectivesSection(data) {
+    const content = data.discussion?.body || '';
+    
+    // Look for objectives, goals, or aims in the content
+    const objectivePatterns = [
+      /(?:objectives?|goals?|aims?):\s*([\s\S]*?)(?:\n\n|$)/i,
+      /(?:we aim to|goal is to|objective is to)\s*([^\n]+)/gi
+    ];
+    
+    const objectives = [];
+    
+    objectivePatterns.forEach(pattern => {
+      const matches = content.match(pattern);
+      if (matches) {
+        if (pattern.global) {
+          objectives.push(...matches);
+        } else {
+          objectives.push(matches[1].trim());
+        }
+      }
+    });
+    
+    if (objectives.length > 0) {
+      return objectives.map((obj, index) => `${index + 1}. ${obj}`).join('\n');
+    }
+    
+    // Fallback based on discussion title
+    const title = data.discussion?.title || 'Project Goals';
+    return `1. Complete ${title.toLowerCase()}\n2. Ensure quality and timely delivery\n3. Maintain stakeholder alignment`;
+  }
+
+  generateCurrentPhase(data) {
+    const content = data.discussion?.body?.toLowerCase() || '';
+    
+    if (content.includes('planning') || content.includes('design')) {
+      return 'Planning & Design';
+    } else if (content.includes('development') || content.includes('implement')) {
+      return 'Development';
+    } else if (content.includes('testing') || content.includes('qa')) {
+      return 'Testing & QA';
+    } else if (content.includes('review') || content.includes('feedback')) {
+      return 'Review & Feedback';
+    } else if (content.includes('deploy') || content.includes('release')) {
+      return 'Deployment & Release';
+    } else {
+      return 'In Progress';
+    }
+  }
+
+  generateNextMilestone(data) {
+    const content = data.discussion?.body || '';
+    
+    // Look for milestone or deadline mentions
+    const milestonePattern = /(?:milestone|deadline|due|target):\s*([^\n]+)/i;
+    const match = content.match(milestonePattern);
+    
+    if (match) {
+      return match[1].trim();
+    }
+    
+    // Generate next milestone date (2 weeks from now)
+    const nextMilestone = new Date();
+    nextMilestone.setDate(nextMilestone.getDate() + 14);
+    return `Next review - ${nextMilestone.toISOString().split('T')[0]}`;
+  }
+
+  generateStakeholdersSection(data) {
+    const stakeholders = new Set();
+    
+    // Add discussion participants
+    if (data.discussion?.author) {
+      stakeholders.add(data.discussion.author);
+    }
+    
+    // Add contributors from PRs and issues
+    this.getUniqueContributors(data).forEach(contributor => {
+      stakeholders.add(contributor);
+    });
+    
+    // Add common stakeholder roles if no specific ones found
+    if (stakeholders.size === 0) {
+      return '- Project Manager\n- Development Team\n- Quality Assurance\n- Product Owner';
+    }
+    
+    const stakeholderList = Array.from(stakeholders).map(stakeholder => `- @${stakeholder}`).join('\n');
+    
+    // Add role-based stakeholders
+    const additionalStakeholders = [
+      '- Product Owner',
+      '- Development Team',
+      '- Quality Assurance Team'
+    ];
+    
+    return stakeholderList + '\n' + additionalStakeholders.join('\n');
+  }
+
+  generateRecentUpdatesSection(data) {
+    const updates = [];
+    
+    // Add discussion-based updates
+    if (data.discussion) {
+      updates.push(`- Discussion #${data.discussion.number}: ${data.discussion.title}`);
+    }
+    
+    // Add PR updates
+    if (data.prs && data.prs.length > 0) {
+      data.prs.forEach(pr => {
+        updates.push(`- PR #${pr.number}: ${pr.title} (${pr.status})`);
+      });
+    }
+    
+    // Add issue updates
+    if (data.issues && data.issues.length > 0) {
+      data.issues.forEach(issue => {
+        updates.push(`- Issue #${issue.number}: ${issue.title} (${issue.state})`);
+      });
+    }
+    
+    if (updates.length === 0) {
+      return '- Recent project updates will be listed here\n- Progress on key initiatives\n- Important announcements';
+    }
+    
+    return updates.join('\n');
+  }
+
+  generateActionItemsSection(data) {
+    const content = data.discussion?.body || '';
+    
+    // Look for action items in various formats
+    const actionPatterns = [
+      /(?:action items?|tasks?|todos?):\s*([\s\S]*?)(?:\n\n|$)/i,
+      /(?:action|todo|task):\s*([^\n]+)/gi,
+      /-\s*\[\s*\]\s*([^\n]+)/gi // Checkbox format
+    ];
+    
+    const actionItems = [];
+    
+    actionPatterns.forEach(pattern => {
+      let match;
+      if (pattern.global) {
+        while ((match = pattern.exec(content)) !== null) {
+          actionItems.push(match[1].trim());
+        }
+      } else {
+        match = content.match(pattern);
+        if (match) {
+          // Split multiline action items
+          const items = match[1].split('\n').filter(item => item.trim());
+          actionItems.push(...items.map(item => item.trim()));
+        }
+      }
+    });
+    
+    if (actionItems.length > 0) {
+      return actionItems.map((item, index) => `${index + 1}. ${item}`).join('\n');
+    }
+    
+    return '1. Review and validate current progress\n2. Address any outstanding issues\n3. Plan next phase activities\n4. Update stakeholders on status';
   }
   generateSourceDescription(data) {
     const sources = [];
