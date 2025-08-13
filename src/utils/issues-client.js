@@ -23,15 +23,15 @@ class IssuesClient {
     }
 
     const issues = [];
-    
+
     for (const issueNumber of issueNumbers) {
       try {
         core.info(`Fetching Issue #${issueNumber}`);
-        
+
         const { data: issue } = await this.github.rest.issues.get({
           owner: this.context.repo.owner,
           repo: this.context.repo.repo,
-          issue_number: parseInt(issueNumber)
+          issue_number: parseInt(issueNumber),
         });
 
         // Skip pull requests (GitHub API returns PRs as issues)
@@ -50,25 +50,39 @@ class IssuesClient {
           updatedAt: issue.updated_at,
           closedAt: issue.closed_at,
           url: issue.html_url,
-          labels: issue.labels.map(label => ({
+          labels: issue.labels.map((label) => ({
             name: label.name,
             color: label.color,
-            description: label.description
+            description: label.description,
           })),
-          assignees: issue.assignees.map(assignee => assignee.login),
-          milestone: issue.milestone ? {
-            title: issue.milestone.title,
-            description: issue.milestone.description,
-            state: issue.milestone.state,
-            dueOn: issue.milestone.due_on
-          } : null,
-          commentsCount: issue.comments
+          assignees: issue.assignees.map((assignee) => assignee.login),
+          milestone: issue.milestone
+            ? {
+                title: issue.milestone.title,
+                description: issue.milestone.description,
+                state: issue.milestone.state,
+                dueOn: issue.milestone.due_on,
+              }
+            : null,
+          commentsCount: issue.comments,
         });
 
         core.info(`✅ Fetched Issue #${issueNumber}: "${issue.title}"`);
-
       } catch (error) {
-        core.error(`Failed to fetch Issue #${issueNumber}: ${error.message}`);
+        if (error.status === 404) {
+          core.error(
+            `❌ Issue #${issueNumber} not found. Please verify the issue number exists in this repository.`
+          );
+        } else if (error.status === 403) {
+          core.error(
+            `❌ Access denied to Issue #${issueNumber}. Check repository permissions.`
+          );
+        } else {
+          core.error(
+            `❌ Failed to fetch Issue #${issueNumber}: ${error.message}`
+          );
+        }
+        // Continue processing other issues instead of failing completely
       }
     }
 
@@ -86,20 +100,26 @@ class IssuesClient {
         closedIssues: 0,
         authors: [],
         labels: [],
-        milestones: []
+        milestones: [],
       };
     }
 
-    const openIssues = issues.filter(issue => issue.state === 'open');
-    const closedIssues = issues.filter(issue => issue.state === 'closed');
-    const allAuthors = [...new Set(issues.map(issue => issue.author))];
-    const allLabels = [...new Set(issues.flatMap(issue => issue.labels.map(label => label.name)))];
-    const allMilestones = [...new Set(issues.map(issue => issue.milestone?.title).filter(Boolean))];
+    const openIssues = issues.filter((issue) => issue.state === 'open');
+    const closedIssues = issues.filter((issue) => issue.state === 'closed');
+    const allAuthors = [...new Set(issues.map((issue) => issue.author))];
+    const allLabels = [
+      ...new Set(
+        issues.flatMap((issue) => issue.labels.map((label) => label.name))
+      ),
+    ];
+    const allMilestones = [
+      ...new Set(issues.map((issue) => issue.milestone?.title).filter(Boolean)),
+    ];
 
     // Group issues by label for analysis
     const issuesByLabel = {};
-    issues.forEach(issue => {
-      issue.labels.forEach(label => {
+    issues.forEach((issue) => {
+      issue.labels.forEach((label) => {
         if (!issuesByLabel[label.name]) {
           issuesByLabel[label.name] = [];
         }
@@ -109,7 +129,7 @@ class IssuesClient {
 
     // Group issues by milestone
     const issuesByMilestone = {};
-    issues.forEach(issue => {
+    issues.forEach((issue) => {
       const milestone = issue.milestone?.title || 'No Milestone';
       if (!issuesByMilestone[milestone]) {
         issuesByMilestone[milestone] = [];
@@ -126,16 +146,16 @@ class IssuesClient {
       milestones: allMilestones,
       issuesByLabel: issuesByLabel,
       issuesByMilestone: issuesByMilestone,
-      issues: issues.map(issue => ({
+      issues: issues.map((issue) => ({
         number: issue.number,
         title: issue.title,
         author: issue.author,
         state: issue.state,
         url: issue.url,
-        labels: issue.labels.map(label => label.name),
+        labels: issue.labels.map((label) => label.name),
         milestone: issue.milestone?.title,
-        assignees: issue.assignees
-      }))
+        assignees: issue.assignees,
+      })),
     };
   }
 }

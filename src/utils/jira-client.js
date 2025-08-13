@@ -13,19 +13,21 @@ class JiraClient {
     this.userEmail = process.env.JIRA_USER_EMAIL;
     this.apiToken = process.env.JIRA_API_TOKEN;
     this.project = process.env.JIRA_PROJECT;
-    
+
     // Validate required environment variables
     if (!this.baseUrl || !this.userEmail || !this.apiToken || !this.project) {
       this.enabled = false;
       return;
     }
-    
+
     this.enabled = true;
     this.authHeader = this.createAuthHeader();
   }
 
   createAuthHeader() {
-    const auth = Buffer.from(`${this.userEmail}:${this.apiToken}`).toString('base64');
+    const auth = Buffer.from(`${this.userEmail}:${this.apiToken}`).toString(
+      'base64'
+    );
     return `Basic ${auth}`;
   }
 
@@ -38,21 +40,26 @@ class JiraClient {
     }
 
     const issues = [];
-    
+
     for (const jiraKey of jiraKeys) {
       try {
         core.info(`Fetching Jira issue: ${jiraKey}`);
-        
-        const response = await fetch(`${this.baseUrl}/rest/api/3/issue/${jiraKey}`, {
-          headers: {
-            'Authorization': this.authHeader,
-            'Accept': 'application/json',
-            'Content-Type': 'application/json'
+
+        const response = await fetch(
+          `${this.baseUrl}/rest/api/3/issue/${jiraKey}`,
+          {
+            headers: {
+              Authorization: this.authHeader,
+              Accept: 'application/json',
+              'Content-Type': 'application/json',
+            },
           }
-        });
+        );
 
         if (!response.ok) {
-          core.error(`Failed to fetch ${jiraKey}: ${response.status} ${response.statusText}`);
+          core.error(
+            `Failed to fetch ${jiraKey}: ${response.status} ${response.statusText}`
+          );
           continue;
         }
 
@@ -73,14 +80,31 @@ class JiraClient {
           project: issue.fields.project.key,
           url: `${this.baseUrl}/browse/${issue.key}`,
           labels: issue.fields.labels || [],
-          components: issue.fields.components?.map(comp => comp.name) || [],
-          fixVersions: issue.fields.fixVersions?.map(ver => ver.name) || []
+          components: issue.fields.components?.map((comp) => comp.name) || [],
+          fixVersions: issue.fields.fixVersions?.map((ver) => ver.name) || [],
         });
 
-        core.info(`✅ Fetched Jira issue: ${jiraKey} - "${issue.fields.summary}"`);
-
+        core.info(
+          `✅ Fetched Jira issue: ${jiraKey} - "${issue.fields.summary}"`
+        );
       } catch (error) {
-        core.error(`Failed to fetch Jira issue ${jiraKey}: ${error.message}`);
+        if (error.response?.status === 404) {
+          core.error(
+            `❌ Jira issue ${jiraKey} not found. Please verify the key exists and is accessible.`
+          );
+        } else if (
+          error.response?.status === 401 ||
+          error.response?.status === 403
+        ) {
+          core.error(
+            `❌ Access denied to Jira issue ${jiraKey}. Check authentication credentials and permissions.`
+          );
+        } else {
+          core.error(
+            `❌ Failed to fetch Jira issue ${jiraKey}: ${error.message}`
+          );
+        }
+        // Continue processing other Jira issues instead of failing completely
       }
     }
 
@@ -99,12 +123,15 @@ class JiraClient {
       core.info(`Fetching current sprint for project: ${this.project}`);
 
       // First, get the board for the project
-      const boardResponse = await fetch(`${this.baseUrl}/rest/agile/1.0/board?projectKeyOrId=${this.project}`, {
-        headers: {
-          'Authorization': this.authHeader,
-          'Accept': 'application/json'
+      const boardResponse = await fetch(
+        `${this.baseUrl}/rest/agile/1.0/board?projectKeyOrId=${this.project}`,
+        {
+          headers: {
+            Authorization: this.authHeader,
+            Accept: 'application/json',
+          },
         }
-      });
+      );
 
       if (!boardResponse.ok) {
         core.warning('Could not fetch board information for current sprint');
@@ -120,12 +147,15 @@ class JiraClient {
       const boardId = boardData.values[0].id;
 
       // Get active sprints for the board
-      const sprintResponse = await fetch(`${this.baseUrl}/rest/agile/1.0/board/${boardId}/sprint?state=active`, {
-        headers: {
-          'Authorization': this.authHeader,
-          'Accept': 'application/json'
+      const sprintResponse = await fetch(
+        `${this.baseUrl}/rest/agile/1.0/board/${boardId}/sprint?state=active`,
+        {
+          headers: {
+            Authorization: this.authHeader,
+            Accept: 'application/json',
+          },
         }
-      });
+      );
 
       if (!sprintResponse.ok) {
         core.warning('Could not fetch active sprints');
@@ -146,9 +176,8 @@ class JiraClient {
         startDate: sprint.startDate,
         endDate: sprint.endDate,
         goal: sprint.goal || '',
-        boardId: boardId
+        boardId: boardId,
       };
-
     } catch (error) {
       core.error(`Failed to fetch current sprint: ${error.message}`);
       return null;
@@ -164,13 +193,13 @@ class JiraClient {
         totalIssues: 0,
         issuesByStatus: {},
         issuesByType: {},
-        sprint: null
+        sprint: null,
       };
     }
 
     // Group issues by status
     const issuesByStatus = {};
-    issues.forEach(issue => {
+    issues.forEach((issue) => {
       if (!issuesByStatus[issue.status]) {
         issuesByStatus[issue.status] = [];
       }
@@ -179,15 +208,21 @@ class JiraClient {
 
     // Group issues by type
     const issuesByType = {};
-    issues.forEach(issue => {
+    issues.forEach((issue) => {
       if (!issuesByType[issue.issueType]) {
         issuesByType[issue.issueType] = [];
       }
       issuesByType[issue.issueType].push(issue);
     });
 
-    const allAssignees = [...new Set(issues.map(issue => issue.assignee).filter(a => a !== 'Unassigned'))];
-    const allComponents = [...new Set(issues.flatMap(issue => issue.components))];
+    const allAssignees = [
+      ...new Set(
+        issues.map((issue) => issue.assignee).filter((a) => a !== 'Unassigned')
+      ),
+    ];
+    const allComponents = [
+      ...new Set(issues.flatMap((issue) => issue.components)),
+    ];
 
     return {
       totalIssues: issues.length,
@@ -196,14 +231,14 @@ class JiraClient {
       assignees: allAssignees,
       components: allComponents,
       sprint: sprint,
-      issues: issues.map(issue => ({
+      issues: issues.map((issue) => ({
         key: issue.key,
         summary: issue.summary,
         status: issue.status,
         issueType: issue.issueType,
         assignee: issue.assignee,
-        url: issue.url
-      }))
+        url: issue.url,
+      })),
     };
   }
 }

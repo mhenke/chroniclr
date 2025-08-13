@@ -23,22 +23,22 @@ class PullRequestClient {
     }
 
     const prs = [];
-    
+
     for (const prNumber of prNumbers) {
       try {
         core.info(`Fetching PR #${prNumber}`);
-        
+
         const { data: pr } = await this.github.rest.pulls.get({
           owner: this.context.repo.owner,
           repo: this.context.repo.repo,
-          pull_number: parseInt(prNumber)
+          pull_number: parseInt(prNumber),
         });
 
         // Get PR files for change analysis
         const { data: files } = await this.github.rest.pulls.listFiles({
           owner: this.context.repo.owner,
           repo: this.context.repo.repo,
-          pull_number: parseInt(prNumber)
+          pull_number: parseInt(prNumber),
         });
 
         // Extract JIRA keys from PR content
@@ -53,21 +53,31 @@ class PullRequestClient {
           merged: pr.merged,
           mergedAt: pr.merged_at,
           url: pr.html_url,
-          files: files.map(file => ({
+          files: files.map((file) => ({
             filename: file.filename,
             status: file.status,
             additions: file.additions,
             deletions: file.deletions,
-            changes: file.changes
+            changes: file.changes,
           })),
           jiraKeys: jiraKeys,
-          labels: pr.labels.map(label => label.name)
+          labels: pr.labels.map((label) => label.name),
         });
 
         core.info(`✅ Fetched PR #${prNumber}: "${pr.title}"`);
-
       } catch (error) {
-        core.error(`Failed to fetch PR #${prNumber}: ${error.message}`);
+        if (error.status === 404) {
+          core.error(
+            `❌ Pull Request #${prNumber} not found. Please verify the PR number exists in this repository.`
+          );
+        } else if (error.status === 403) {
+          core.error(
+            `❌ Access denied to PR #${prNumber}. Check repository permissions.`
+          );
+        } else {
+          core.error(`❌ Failed to fetch PR #${prNumber}: ${error.message}`);
+        }
+        // Continue processing other PRs instead of failing completely
       }
     }
 
@@ -95,20 +105,24 @@ class PullRequestClient {
         filesChanged: 0,
         linesAdded: 0,
         linesDeleted: 0,
-        jiraKeys: []
+        jiraKeys: [],
       };
     }
 
-    const mergedPRs = prs.filter(pr => pr.merged);
-    const allAuthors = [...new Set(prs.map(pr => pr.author))];
-    const allJiraKeys = [...new Set(prs.flatMap(pr => pr.jiraKeys))];
-    
+    const mergedPRs = prs.filter((pr) => pr.merged);
+    const allAuthors = [...new Set(prs.map((pr) => pr.author))];
+    const allJiraKeys = [...new Set(prs.flatMap((pr) => pr.jiraKeys))];
+
     const totalFiles = prs.reduce((sum, pr) => sum + pr.files.length, 0);
-    const totalAdditions = prs.reduce((sum, pr) => 
-      sum + pr.files.reduce((fileSum, file) => fileSum + file.additions, 0), 0
+    const totalAdditions = prs.reduce(
+      (sum, pr) =>
+        sum + pr.files.reduce((fileSum, file) => fileSum + file.additions, 0),
+      0
     );
-    const totalDeletions = prs.reduce((sum, pr) => 
-      sum + pr.files.reduce((fileSum, file) => fileSum + file.deletions, 0), 0
+    const totalDeletions = prs.reduce(
+      (sum, pr) =>
+        sum + pr.files.reduce((fileSum, file) => fileSum + file.deletions, 0),
+      0
     );
 
     return {
@@ -119,14 +133,14 @@ class PullRequestClient {
       linesAdded: totalAdditions,
       linesDeleted: totalDeletions,
       jiraKeys: allJiraKeys,
-      prs: prs.map(pr => ({
+      prs: prs.map((pr) => ({
         number: pr.number,
         title: pr.title,
         author: pr.author,
         merged: pr.merged,
         url: pr.url,
-        jiraKeys: pr.jiraKeys
-      }))
+        jiraKeys: pr.jiraKeys,
+      })),
     };
   }
 }
