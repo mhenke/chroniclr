@@ -1,6 +1,6 @@
 # Chroniclr - Complete Project Intelligence System
 
-> AI-powered documentation generation from multiple data sources: GitHub discussions, Jira projects, and pull requests. Modular architecture with runtime source selection for targeted documentation.
+> AI-powered documentation generation with enhanced discovery capabilities across GitHub discussions, Jira projects, pull requests, and issues. Production-ready with intelligent output management, comprehensive discovery engine, and runtime source selection.
 
 ## Overview
 
@@ -8,21 +8,28 @@ Chroniclr is a comprehensive project intelligence system that generates document
 
 ### 📊 **Data Sources**
 - **GitHub Discussions** - Discussion content, comments, community engagement analysis
+- **GitHub Issues** - Issue tracking, labels, milestones, assignee correlation
 - **Jira Projects** - Sprint data, epics, issues, project metrics, team workload  
 - **Pull Requests** - Code changes, file analysis, commit history, release documentation
-- **Action Items** - Extract and manage action items from any source content
+
+### 🔍 **Enhanced Discovery Engine**
+- **Cross-Platform Correlation** - Automatically discovers and links related content across all sources
+- **Multi-Strategy Discovery** - 20+ discovery strategies including keyword analysis, semantic linking, and cross-reference detection
+- **Intelligent Confidence Scoring** - Ranks discovered content by relevance and confidence
+- **Semantic Content Linking** - AI-powered analysis to find conceptually related items
 
 ### 🤖 **Core Intelligence Functions**
 - **AI Document Generation** - Uses GitHub Models API (GPT-4o) to process selected data sources
-- **Cross-Platform Correlation** - Automatically links related artifacts when using multiple sources
 - **Community Engagement Analysis** - Prioritizes content based on emoji reactions and engagement
 - **Smart Task Management** - Creates GitHub issues with assignments, priorities, and due dates
+- **Intelligent Output Organization** - AI-generated folder names with session management
 
 ### 📚 **Generated Documentation Types**
 **From Discussions:** Project summaries, initiative briefs, meeting notes, changelogs
+**From Issues:** Issue summaries, milestone reports, bug analysis, feature tracking
 **From Jira:** Sprint reports, epic summaries, project dashboards  
-**From PRs:** Release notes, change impact reports
-**Multi-Source:** Feature completion tracking, cross-platform correlation reports
+**From PRs:** Release notes, change impact reports, code review summaries
+**Multi-Source:** Cross-platform correlation reports, comprehensive project intelligence, discovery session reports
 
 ## Quick Start
 
@@ -62,22 +69,28 @@ permissions:
 
 ### 4. Choose Data Sources and Generate Documentation
 
-The workflow supports runtime data source selection:
+The workflow supports runtime data source selection with enhanced discovery:
 ```bash
 # Traditional discussion processing
 gh workflow run chroniclr.yml -f discussion_number=123 -f source=discussion
 
+# GitHub Issues analysis with discovery
+gh workflow run chroniclr.yml -f issue_numbers=456,789 -f source=issues
+
 # Jira project documentation  
-gh workflow run chroniclr.yml -f discussion_number=123 -f source=jira
+gh workflow run chroniclr.yml -f jira_keys=PROJ-123,FEAT-456 -f source=jira
 
 # Pull request analysis
-gh workflow run chroniclr.yml -f discussion_number=123 -f source=pr
+gh workflow run chroniclr.yml -f pr_numbers=789,101 -f source=pr
 
-# Multi-source intelligence
-gh workflow run chroniclr.yml -f discussion_number=123 -f source=jira,pr
+# Enhanced discovery across sources
+gh workflow run chroniclr.yml -f discovery_keywords=auth,security,mobile -f source=jira,pr,issues
 
-# All data sources
-gh workflow run chroniclr.yml -f discussion_number=123 -f source=discussion,jira,pr,issues
+# Configuration file approach (recommended)
+gh workflow run chroniclr.yml -f config_file=.chroniclr/config.yml
+
+# All data sources with discovery
+gh workflow run chroniclr.yml -f source=discussion,jira,pr,issues -f discovery_keywords=performance
 ```
 
 ## How It Works
@@ -91,13 +104,14 @@ Discussion labels determine which document types are generated:
 - `planning` → Meeting notes + summary
 
 ### ⚙️ **Complete Automation Pipeline**
-1. **GitHub Actions** triggers on discussion events (created/edited)
-2. **Discussion Processing** fetches main post + all comments via REST API & GraphQL
-3. **Label Processing** maps labels to document types using `chroniclr.config.json`
-4. **AI Generation** uses GitHub Models API (GPT-4o) to analyze full conversation
-5. **Action Item Processing** parses action items and creates assigned GitHub issues
-6. **Documentation Creation** generates structured documents using templates
-7. **PR Creation** opens pull request with all generated content and issue summaries
+1. **GitHub Actions** triggers on discussion events or manual workflow dispatch
+2. **Discovery Phase** uses 20+ strategies to find related content across all sources
+3. **Data Collection** fetches content from selected sources (discussions, issues, PRs, Jira)
+4. **Cross-Platform Correlation** analyzes relationships between discovered items
+5. **AI Generation** uses GitHub Models API (GPT-4o) with intelligent rate limiting
+6. **Output Management** organizes files in AI-generated folders with session tracking
+7. **Documentation Creation** generates structured documents using templates
+8. **PR Creation** opens pull request with discovery report and generated content
 
 ### 🤖 **AI-Powered Analysis**
 - **GitHub Models API**: Uses GPT-4o via GitHub's built-in AI service with intelligent rate limiting

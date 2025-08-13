@@ -50,11 +50,11 @@
     "temperature": 0.3
   },
   "jira": {
-    "enabled": false,
-    "baseUrl": "",
-    "defaultProject": "",
+    "enabled": true,
+    "baseUrl": "JIRA_BASE_URL",
+    "defaultProject": "JIRA_PROJECT",
     "authentication": {
-      "userEmail": "",
+      "userEmail": "JIRA_USER_EMAIL",
       "apiTokenSecret": "JIRA_API_TOKEN"
     },
     "documentTypes": {
@@ -83,7 +83,24 @@
   "issues": {
     "defaultLabels": ["action-item", "chroniclr-generated", "needs-triage"],
     "enablePriorityLabels": true,
-    "enableHashtagLabels": true
+    "enableHashtagLabels": true,
+    "discovery": {
+      "enabled": true,
+      "modules": {
+        "keywordDiscovery": { "enabled": true },
+        "labelDiscovery": { "enabled": true },
+        "milestoneDiscovery": { "enabled": true },
+        "authorDiscovery": { "enabled": true },
+        "crossReferenceDiscovery": { "enabled": true },
+        "relatedIssuesDiscovery": { "enabled": true }
+      },
+      "filters": {
+        "excludeLabels": ["wontfix", "duplicate", "invalid"],
+        "excludeAuthors": ["dependabot[bot]"],
+        "includeStates": ["open", "closed"],
+        "maxAge": "6m"
+      }
+    }
   },
   "pullRequests": {
     "enabled": false,
@@ -128,8 +145,44 @@
     "crossReferenceAnalysis": true,
     "timelineGeneration": true
   },
+  "discovery": {
+    "enabled": true,
+    "crossPlatformCorrelation": true,
+    "semanticLinking": true,
+    "maxDiscoveries": 20,
+    "confidenceThreshold": 0.6,
+    "strategies": {
+      "discussions": {
+        "titleKeywords": true,
+        "bodyContent": true,
+        "participantAnalysis": true,
+        "reactionAnalysis": true
+      },
+      "issues": {
+        "labelMatching": true,
+        "milestoneTracking": true,
+        "assigneeCorrelation": true,
+        "commentAnalysis": true
+      },
+      "pullRequests": {
+        "jiraKeyExtraction": true,
+        "branchAnalysis": true,
+        "commitMessageScanning": true,
+        "fileChangeCorrelation": true
+      },
+      "jira": {
+        "projectKeyMapping": true,
+        "epicCorrelation": true,
+        "sprintTracking": true
+      }
+    }
+  },
   "workflow": {
-    "triggers": ["discussion_created", "discussion_edited", "pull_request_merged"],
+    "triggers": [
+      "discussion_created",
+      "discussion_edited",
+      "pull_request_merged"
+    ],
     "requiredApprovals": 1,
     "branchPrefix": "docs/chroniclr-",
     "commitMessage": "📚 Update documentation via Chroniclr"

@@ -168,6 +168,8 @@ class ConfigLoader {
       PR_NUMBERS: 'prNumbers',
       JIRA_KEYS: 'jiraKeys',
       DISCUSSION_NUMBER: 'discussionNumber',
+      ISSUE_NUMBERS: 'issueNumbers',
+      DISCOVERY_KEYWORDS: 'discoveryKeywords',
       DISCOVERY_SCOPE: 'discovery.scope',
       MAX_DISCOVERIES: 'discovery.maxDiscoveries',
       BATCH_SIZE: 'options.batchSize',
@@ -299,6 +301,8 @@ sources:
 discussionNumber: 123
 prNumbers: [456, 789]
 jiraKeys: [PROJ-123, FEAT-456]
+issueNumbers: [101, 102]
+discoveryKeywords: [auth, security, mobile]
 
 # Discovery settings
 discovery:
@@ -408,6 +412,14 @@ advanced:
 
     if (config.jiraKeys && config.jiraKeys.length > 0) {
       envVars.JIRA_KEYS = config.jiraKeys.join(',');
+    }
+
+    if (config.issueNumbers && config.issueNumbers.length > 0) {
+      envVars.ISSUE_NUMBERS = config.issueNumbers.join(',');
+    }
+
+    if (config.discoveryKeywords && config.discoveryKeywords.length > 0) {
+      envVars.DISCOVERY_KEYWORDS = config.discoveryKeywords.join(',');
     }
 
     if (config.discovery) {

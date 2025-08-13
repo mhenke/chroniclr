@@ -23,6 +23,14 @@ on:
         description: 'Jira issue keys to find related PRs (comma-separated, e.g., "PROJ-123,PROJ-456")'
         required: false
         type: string
+      issue_numbers:
+        description: 'GitHub issue numbers to include (comma-separated, e.g., "123,456")'
+        required: false
+        type: string
+      discovery_keywords:
+        description: 'Keywords for intelligent discovery across all sources (comma-separated)'
+        required: false
+        type: string
       discovery_scope:
         description: 'Discovery scope for automated searches'
         required: false
@@ -287,6 +295,88 @@ jobs:
             core.exportVariable('CHRONICLR_SESSION_ID', session.sessionId);
             core.exportVariable('CHRONICLR_FOLDER_NAME', session.folderName);
 
+      - name: Enhanced Discovery Phase
+        id: enhanced-discovery
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { DiscoveryEngine } = require('./src/utils/discovery-engine.js');
+            const { github } = require('@actions/github');
+            
+            core.info('🔍 Starting enhanced discovery across all sources...');
+            
+            const discoveryEngine = new DiscoveryEngine(github.getOctokit(process.env.GITHUB_TOKEN), {
+              context: {
+                repo: {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo
+                }
+              }
+            });
+            
+            // Prepare seed data for discovery
+            const seedData = {
+              discussionNumber: process.env.DISCUSSION_NUMBER,
+              discussionTitle: process.env.DISCUSSION_TITLE,
+              discussionAuthor: process.env.DISCUSSION_AUTHOR,
+              prNumbers: process.env.PR_NUMBERS,
+              jiraKeys: process.env.JIRA_KEYS,
+              issueNumbers: process.env.ISSUE_NUMBERS,
+              keywords: process.env.DISCOVERY_KEYWORDS
+            };
+            
+            // Only run discovery if we have seed data
+            const hasSeedData = Object.values(seedData).some(value => value && value.length > 0);
+            
+            if (hasSeedData) {
+              try {
+                const discoveries = await discoveryEngine.discoverRelatedContent(seedData);
+                
+                // Set environment variables for use in document generation
+                if (discoveries.discussions.length > 0) {
+                  const discussionNumbers = discoveries.discussions.map(d => d.number).join(',');
+                  core.exportVariable('DISCOVERED_DISCUSSIONS', discussionNumbers);
+                  core.info(`📢 Discovered discussions: ${discussionNumbers}`);
+                }
+                
+                if (discoveries.issues.length > 0) {
+                  const issueNumbers = discoveries.issues.map(i => i.number).join(',');
+                  core.exportVariable('DISCOVERED_ISSUES', issueNumbers);
+                  core.info(`🐛 Discovered issues: ${issueNumbers}`);
+                }
+                
+                if (discoveries.pullRequests.length > 0) {
+                  const prNumbers = discoveries.pullRequests.map(p => p.number).join(',');
+                  core.exportVariable('DISCOVERED_PRS', prNumbers);
+                  core.info(`🔀 Discovered PRs: ${prNumbers}`);
+                }
+                
+                if (discoveries.jiraIssues.length > 0) {
+                  const jiraKeys = discoveries.jiraIssues.map(j => j.key).join(',');
+                  core.exportVariable('DISCOVERED_JIRA', jiraKeys);
+                  core.info(`🎫 Discovered Jira issues: ${jiraKeys}`);
+                }
+                
+                // Set discovery summary for reporting
+                core.setOutput('discovery_summary', JSON.stringify(discoveries.summary));
+                core.setOutput('total_discovered', discoveries.summary.totalItems);
+                core.setOutput('correlations_found', discoveries.correlations.length);
+                
+                core.info(`✅ Discovery complete: ${discoveries.summary.totalItems} items found, ${discoveries.correlations.length} correlations`);
+                
+              } catch (error) {
+                core.warning(`Discovery phase failed: ${error.message}`);
+                core.setOutput('discovery_summary', JSON.stringify({ error: error.message }));
+                core.setOutput('total_discovered', 0);
+                core.setOutput('correlations_found', 0);
+              }
+            } else {
+              core.info('⏭️ No seed data provided - skipping enhanced discovery');
+              core.setOutput('discovery_summary', JSON.stringify({ skipped: 'No seed data' }));
+              core.setOutput('total_discovered', 0);
+              core.setOutput('correlations_found', 0);
+            }
+
       - name: Process modules based on runtime parameters
         id: process-modules
         env:
@@ -504,9 +594,57 @@ jobs:
                 ;;
                 
               "issues")
-                echo "✅ Action Items processing enabled"
-                PROCESSED_MODULES="$PROCESSED_MODULES issues"
-                # Process action items (handled separately)
+                echo "🐛 GitHub Issues processing enabled"
+                
+                # Check if we have issue numbers (manual or discovered)
+                ISSUES_TO_PROCESS="$ISSUE_NUMBERS"
+                if [ -n "$DISCOVERED_ISSUES" ]; then
+                  if [ -n "$ISSUES_TO_PROCESS" ]; then
+                    ISSUES_TO_PROCESS="$ISSUES_TO_PROCESS,$DISCOVERED_ISSUES"
+                  else
+                    ISSUES_TO_PROCESS="$DISCOVERED_ISSUES"
+                  fi
+                fi
+                
+                if [ -n "$ISSUES_TO_PROCESS" ]; then
+                  echo "📋 Processing issues: $ISSUES_TO_PROCESS"
+                  PROCESSED_MODULES="$PROCESSED_MODULES issues"
+                  
+                  if [ "$DRY_RUN" = "true" ]; then
+                    echo "🏃‍♂️ DRY RUN MODE - Would process issues: $ISSUES_TO_PROCESS"
+                  else
+                    echo "🚀 Generating issues-based documentation..."
+                    # Generate issue analysis documents
+                    ISSUE_NUMBERS="$ISSUES_TO_PROCESS" DOC_TYPE=issue-analysis npm run generate-document
+                    if [ $? -eq 0 ]; then
+                      echo "  ✅ issue-analysis generated successfully"
+                      GENERATED_DOCS="$GENERATED_DOCS issue-analysis"
+                    else
+                      echo "  ❌ issue-analysis generation failed"
+                    fi
+                    
+                    # Generate issue correlation report if we have multiple sources
+                    if [[ "$SOURCE_MODULES" == *","* ]]; then
+                      ISSUE_NUMBERS="$ISSUES_TO_PROCESS" DOC_TYPE=issue-correlation npm run generate-document
+                      if [ $? -eq 0 ]; then
+                        echo "  ✅ issue-correlation generated successfully"
+                        GENERATED_DOCS="$GENERATED_DOCS issue-correlation"
+                      else
+                        echo "  ❌ issue-correlation generation failed"
+                      fi
+                    fi
+                  fi
+                else
+                  echo "❌ Issues module requested but no issue numbers provided"
+                  echo ""
+                  echo "📋 Required Parameters:"
+                  echo "  • issue_numbers: Specific GitHub issue numbers to analyze"
+                  echo "  • discovery_keywords: Keywords to discover related issues"
+                  echo ""
+                  echo "🎯 Examples:"
+                  echo "  gh workflow run chroniclr.yml -f source=issues -f issue_numbers='123,456'"
+                  echo "  gh workflow run chroniclr.yml -f source=issues -f discovery_keywords='bug,security'"
+                fi
                 ;;
                 
                 

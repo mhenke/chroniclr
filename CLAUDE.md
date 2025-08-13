@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Chroniclr** is a comprehensive AI-powered project intelligence system that generates documentation from multiple data sources: GitHub discussions, Jira projects, and pull requests. The modular architecture allows runtime selection of data sources to create targeted documentation for different audiences and purposes.
+**Chroniclr** is a comprehensive AI-powered project intelligence system with enhanced discovery capabilities that generates documentation from multiple data sources: GitHub discussions, issues, pull requests, and Jira. The system features a sophisticated discovery engine, intelligent output management, and production-ready infrastructure for enterprise-scale project intelligence.
 
 ## Core Architecture
 
@@ -13,39 +13,56 @@ Chroniclr operates as a modular system where data sources can be selected at run
 
 **Data Sources:**
 - `discussion` - GitHub discussion content, comments, and community engagement analysis
-- `jira` - Jira project data (sprints, epics, issues, metrics)
-- `pr` - Pull request analysis and file change impact assessment
-- `issues` - Action item extraction and GitHub issue creation
+- `issues` - GitHub Issues discovery, tracking, and correlation across milestones and labels
+- `jira` - Jira project data (sprints, epics, issues, metrics) with multi-strategy discovery
+- `pr` - Pull request analysis, file change impact assessment, and JIRA key extraction
 
 **Core Functions (always available):**
-- **AI Processing** - Uses GitHub Models API (GPT-4o) to generate documents from selected data sources
-- **Cross-Platform Correlation** - Automatically links related artifacts across data sources when multiple sources are selected
+- **Enhanced Discovery Engine** - 20+ discovery strategies across all data sources with confidence scoring
+- **AI Processing** - Uses GitHub Models API (GPT-4o) with sophisticated rate limiting and request queuing
+- **Cross-Platform Correlation** - Automatically discovers and links related artifacts across all data sources
+- **Intelligent Output Management** - AI-generated folder organization with session-based tracking
 
-**Runtime Source Selection:**
+**Runtime Source Selection with Discovery:**
 ```bash
-# Discussion data only
+# Single source with specific IDs
 gh workflow run chroniclr.yml -f discussion_number=123 -f source=discussion
+gh workflow run chroniclr.yml -f issue_numbers=456,789 -f source=issues
+gh workflow run chroniclr.yml -f jira_keys=PROJ-123,FEAT-456 -f source=jira
+gh workflow run chroniclr.yml -f pr_numbers=101,102 -f source=pr
 
-# Jira project data only  
-gh workflow run chroniclr.yml -f discussion_number=123 -f source=jira
+# Multi-source discovery with keywords
+gh workflow run chroniclr.yml -f discovery_keywords=auth,security,mobile -f source=jira,pr,issues
 
-# Pull request analysis only
-gh workflow run chroniclr.yml -f discussion_number=123 -f source=pr
+# Configuration file approach (recommended)
+gh workflow run chroniclr.yml -f config_file=.chroniclr/config.yml
 
-# Multi-source with automatic correlation
-gh workflow run chroniclr.yml -f discussion_number=123 -f source=jira,pr
-
-# All data sources
-gh workflow run chroniclr.yml -f discussion_number=123 -f source=discussion,jira,pr,issues
+# All sources with discovery
+gh workflow run chroniclr.yml -f source=discussion,jira,pr,issues -f discovery_keywords=performance
 ```
+
+### Enhanced Discovery Engine Architecture
+The discovery engine is the core innovation of Chroniclr, providing comprehensive content discovery across all data sources:
+
+**Discovery Orchestration (`src/utils/discovery-engine.js`):**
+- **4-Phase Discovery Process**: Identifier → Keyword → Cross-reference → Semantic correlation
+- **Confidence Scoring**: All discovered items ranked by relevance and confidence (0.0-1.0)
+- **Cross-Platform Correlation**: Automatically links related content across GitHub and Jira
+- **Session Management**: Tracks discovery sessions with detailed reporting
+
+**Per-Source Discovery Strategies:**
+- **GitHub Issues** (`src/utils/issues-client.js`): 7 strategies including label matching, milestone tracking, assignee correlation
+- **Pull Requests** (`src/utils/pr-client.js`): 6 strategies including JIRA key extraction, branch analysis, commit scanning
+- **Jira Integration** (`src/utils/jira-client.js`): Multi-strategy discovery with project correlation
+- **Discussions**: Enhanced search with participant and reaction analysis
 
 ### AI-Powered Document Generation  
 - **AI Engine**: GitHub Models API (`https://models.github.ai/inference`) using GPT-4o
-- **Multi-Source Processing**: Combines GitHub discussions, Jira data, and PR analysis
+- **Discovery-Enhanced Processing**: Incorporates discovered content from all sources
 - **Community Engagement**: Prioritizes content based on emoji reaction patterns
-- **Cross-Platform Correlation**: Links discussions → Jira epics → PR implementations
-- **Rate Limiting**: Request queue with exponential backoff for API constraints
-- **Template System**: Source-aware templates with intelligent variable substitution
+- **Production Infrastructure**: Request queuing, exponential backoff, partial failure handling
+- **Intelligent Output**: AI-generated folder names with session-based organization
+- **Template System**: Enhanced templates with discovery variables and cross-platform correlation
 
 ### Document Type Generation by Source
 Different data sources generate different document types:
@@ -89,6 +106,7 @@ The AI document generator (`src/generators/ai-document-generator.js`):
 
 ## Development Commands
 
+### Core Testing
 ```bash
 # Install dependencies and setup
 npm install                    # Install Node.js dependencies
@@ -102,47 +120,58 @@ npm run create-action-items  # Test action item parsing and GitHub issue creatio
 
 # Run tests (if available)
 npm test                      # Run Jest test suite
+```
 
-# Manual workflow testing with different data sources
+### Discovery System Testing
+```bash
+# Test individual discovery engines
+npm run test-pr-discovery      # Test PR discovery strategies (6 strategies)
+npm run test-issues-discovery  # Test GitHub Issues discovery (7 strategies)
+npm run test-discovery-engine  # Test unified discovery orchestration
+
+# Test production infrastructure
+npm run test-rate-limiter      # Test rate limiting and request queuing
+npm run generate-config        # Generate sample configuration files (YAML/JSON)
+npm run list-sessions          # View output session history and metadata
+npm run update-document        # Test document update system with conflict resolution
+```
+
+### Multi-Source Workflow Testing
+```bash
+# Single source testing with specific IDs
 gh workflow run chroniclr.yml -f discussion_number=123 -f source=discussion
-gh workflow run chroniclr.yml -f discussion_number=123 -f source=jira
-gh workflow run chroniclr.yml -f discussion_number=123 -f source=pr
-gh workflow run chroniclr.yml -f discussion_number=123 -f source=jira,pr
-gh workflow run chroniclr.yml -f discussion_number=123 -f source=discussion,jira,pr,issues
+gh workflow run chroniclr.yml -f issue_numbers=456,789 -f source=issues
+gh workflow run chroniclr.yml -f pr_numbers=101,102 -f source=pr
+gh workflow run chroniclr.yml -f jira_keys=PROJ-123,FEAT-456 -f source=jira
 
-# Test modular system independently
-node src/utils/module-runner.js status              # Check module status
-node src/utils/module-runner.js test-deps          # Test module dependencies
-node src/utils/module-runner.js run jira-enrichment
-node src/utils/module-runner.js run pr-analysis
-node src/utils/module-runner.js run cross-platform-correlation
+# Multi-source discovery testing
+gh workflow run chroniclr.yml -f source=jira,pr -f discovery_keywords=auth,security
+gh workflow run chroniclr.yml -f source=discussion,issues,pr -f discovery_keywords=performance
 
-# Test locally with environment variables (multi-source)
+# Configuration file approach (recommended for complex scenarios)
+gh workflow run chroniclr.yml -f config_file=.chroniclr/config.yml
+```
+
+### Local Testing with Environment Variables
+```bash
+# Test discovery with specific sources
+SOURCE_MODULES=jira,pr \
+DISCOVERY_KEYWORDS=security,auth \
+JIRA_KEYS=PROJ-123,FEAT-456 \
+PR_NUMBERS=789,101 \
+npm run test-discovery-engine
+
+# Test with configuration file
+CONFIG_FILE=.chroniclr/config.yml \
+npm run generate-document
+
+# Test traditional document generation (legacy)
 DOC_TYPE=sprint-report \
 DISCUSSION_NUMBER=123 \
 JIRA_BASE_URL="https://company.atlassian.net" \
 JIRA_API_TOKEN="token" \
 JIRA_USER_EMAIL="bot@company.com" \
 npm run generate-document
-
-# Test individual components
-node -e "
-const { JiraClient } = require('./src/utils/jira-client');
-const client = new JiraClient();
-console.log('Jira status:', client.getStatus());
-"
-
-node -e "
-const { PullRequestClient } = require('./src/utils/pr-client');
-const client = new PullRequestClient();
-console.log('PR client enabled:', client.isEnabled());
-"
-
-node -e "
-const { CrossPlatformCorrelator } = require('./src/utils/cross-platform-correlator');
-const correlator = new CrossPlatformCorrelator();
-console.log('Correlation enabled:', correlator.isEnabled());
-"
 ```
 
 ## GitHub Actions Integration
