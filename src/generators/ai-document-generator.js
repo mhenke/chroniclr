@@ -751,7 +751,59 @@ Bad examples: "database", "mobile", "security" (too generic)`;
     content = content.replace(/{content}/g, this.generateBasicContent(data));
     content = content.replace(/{summary}/g, this.generateBasicSummary(data));
 
+    // Replace discussion number if available
+    if (data.discussion && data.discussion.number) {
+      content = content.replace(/{discussionNumber}/g, data.discussion.number);
+    } else {
+      // Create detailed source description for multi-source data
+      const sourceDescription = this.generateSourceDescription(data);
+      content = content.replace(
+        /from GitHub discussion #{discussionNumber}/g,
+        sourceDescription
+      );
+      content = content.replace(
+        /from discussion #{discussionNumber}/g,
+        sourceDescription
+      );
+    }
+
     return content;
+  }
+
+  generateSourceDescription(data) {
+    const sources = [];
+
+    if (data.prs && data.prs.length > 0) {
+      const prNumbers = data.prs.map((pr) => `#${pr.number}`).join(', ');
+      sources.push(
+        `Pull Request${data.prs.length > 1 ? 's' : ''} ${prNumbers}`
+      );
+    }
+
+    if (data.issues && data.issues.length > 0) {
+      const issueNumbers = data.issues
+        .map((issue) => `#${issue.number}`)
+        .join(', ');
+      sources.push(`Issue${data.issues.length > 1 ? 's' : ''} ${issueNumbers}`);
+    }
+
+    if (data.jiraIssues && data.jiraIssues.length > 0) {
+      const jiraKeys = data.jiraIssues.map((jira) => jira.key).join(', ');
+      sources.push(
+        `Jira ticket${data.jiraIssues.length > 1 ? 's' : ''} ${jiraKeys}`
+      );
+    }
+
+    if (sources.length === 0) {
+      return 'from available documentation sources';
+    } else if (sources.length === 1) {
+      return `from ${sources[0]}`;
+    } else if (sources.length === 2) {
+      return `from ${sources[0]} and ${sources[1]}`;
+    } else {
+      const lastSource = sources.pop();
+      return `from ${sources.join(', ')}, and ${lastSource}`;
+    }
   }
 
   generateTitle(docType, data) {
