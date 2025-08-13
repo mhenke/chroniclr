@@ -16,7 +16,6 @@ class JiraClient {
     
     // Validate required environment variables
     if (!this.baseUrl || !this.userEmail || !this.apiToken || !this.project) {
-      core.warning('Jira integration requires JIRA_BASE_URL, JIRA_USER_EMAIL, JIRA_API_TOKEN, and JIRA_PROJECT in GitHub Secrets');
       this.enabled = false;
       return;
     }
