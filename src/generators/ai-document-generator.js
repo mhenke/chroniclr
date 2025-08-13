@@ -38,26 +38,6 @@ class AIDocumentGenerator {
   }
 
 
-  extractRateLimitHeaders(response) {
-    const headers = {};
-    const rateLimitHeaders = [
-      'x-ratelimit-limit',
-      'x-ratelimit-remaining', 
-      'x-ratelimit-reset',
-      'x-ratelimit-used',
-      'x-ratelimit-resource',
-      'retry-after'
-    ];
-
-    rateLimitHeaders.forEach(header => {
-      const value = response.headers.get(header);
-      if (value) {
-        headers[header] = value;
-      }
-    });
-
-    return Object.keys(headers).length > 0 ? headers : null;
-  }
 
   identifyRateLimitType(response) {
     const url = response.url || '';
@@ -110,24 +90,8 @@ class AIDocumentGenerator {
           if (response.status === 429) {
             const limitType = this.identifyRateLimitType(response);
             core.error(`🚨 Rate limit hit: ${limitType}`);
-            
-            const retryAfter = response.headers.get('retry-after');
-            if (retryAfter) {
-              const waitSeconds = parseInt(retryAfter);
-              const waitMinutes = Math.ceil(waitSeconds / 60);
-              core.error(`⏰ Must wait ${waitSeconds} seconds (~${waitMinutes} minutes) before next request`);
-              core.error(`💡 Falling back to template-only generation to avoid long wait`);
-              return null; // Don't retry - wait time is too long
-            }
-            
-            if (attempt < maxRetries) {
-              const delayMs = baseDelayMs * Math.pow(2, attempt);
-              core.warning(`⏳ Retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})...`);
-              await this.sleep(delayMs);
-              continue;
-            } else {
-              core.error(`❌ Max retries exceeded`);
-            }
+            core.error(`💡 Falling back to template-only generation to avoid long wait`);
+            return null; // Don't retry - wait time is too long
           }
           
           core.error(`AI API request failed: ${response.status} ${response.statusText}`);
