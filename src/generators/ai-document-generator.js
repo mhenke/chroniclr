@@ -87,15 +87,9 @@ class AIDocumentGenerator {
         });
 
         if (!response.ok) {
-          if (response.status === 429) {
-            const limitType = this.identifyRateLimitType(response);
-            core.error(`🚨 Rate limit hit: ${limitType}`);
-            core.error(`💡 Falling back to template-only generation to avoid long wait`);
-            return null; // Don't retry - wait time is too long
-          }
-          
-          core.error(`AI API request failed: ${response.status} ${response.statusText}`);
-          return null;
+          const errorMessage = `AI API request failed: ${response.status} ${response.statusText}`;
+          core.error(`� ${errorMessage}`);
+          throw new Error(errorMessage);
         }
 
         const data = await response.json();
@@ -103,17 +97,19 @@ class AIDocumentGenerator {
           core.info('AI response received successfully');
           return data.choices[0].message.content;
         }
-        return null;
+        
+        throw new Error('No AI response content received');
 
       } catch (error) {
         core.error(`AI API request error: ${error.message}`);
         if (attempt === maxRetries) {
-          return null;
+          throw error;
         }
         await this.sleep(baseDelayMs * Math.pow(2, attempt));
       }
     }
-    return null;
+    
+    throw new Error('AI API failed after all retry attempts');
   }
 
   async loadTemplate(docType) {
@@ -195,47 +191,115 @@ class AIDocumentGenerator {
   }
 
   createAIPrompt(docType, data, template) {
-    let prompt = `Generate a ${docType} document using the following data sources:\n\n`;
+    let prompt = `Generate a comprehensive ${docType} document using the following data sources. Include EXACT DETAILS and hard data from the sources:\n\n`;
 
-    // Add discussion content
+    // Add discussion content with full details
     if (data.discussion) {
       prompt += `## Discussion Data\n`;
-      prompt += `Title: ${data.discussion.title}\n`;
-      prompt += `Author: ${data.discussion.author}\n`;
-      prompt += `Content:\n${data.discussion.body}\n\n`;
+      prompt += `- **Number**: #${data.discussion.number}\n`;
+      prompt += `- **Title**: ${data.discussion.title}\n`;
+      prompt += `- **Author**: @${data.discussion.author}\n`;
+      prompt += `- **URL**: ${data.discussion.url}\n`;
+      prompt += `- **Comments**: ${data.discussion.commentsCount}\n`;
+      prompt += `\n**Full Content**:\n${data.discussion.body}\n\n`;
     }
 
-    // Add PR content
+    // Add PR content with detailed file changes
     if (data.prs.length > 0) {
       prompt += `## Pull Requests (${data.prs.length})\n`;
       data.prs.forEach(pr => {
-        prompt += `- PR #${pr.number}: ${pr.title} (${pr.author})\n`;
-        prompt += `  Status: ${pr.state}, Files: ${pr.files || 0}\n`;
+        prompt += `### PR #${pr.number}: ${pr.title}\n`;
+        prompt += `- **Author**: @${pr.author}\n`;
+        prompt += `- **Status**: ${pr.state}${pr.merged ? ' (MERGED)' : ''}\n`;
+        prompt += `- **URL**: ${pr.url}\n`;
+        prompt += `- **Files Changed**: ${pr.files.length}\n`;
+        if (pr.files.length > 0) {
+          const totalAdditions = pr.files.reduce((sum, file) => sum + file.additions, 0);
+          const totalDeletions = pr.files.reduce((sum, file) => sum + file.deletions, 0);
+          prompt += `- **Lines**: +${totalAdditions}, -${totalDeletions}\n`;
+          prompt += `- **Key Files**: ${pr.files.slice(0, 5).map(f => f.filename).join(', ')}\n`;
+        }
+        if (pr.jiraKeys.length > 0) {
+          prompt += `- **Jira Keys**: ${pr.jiraKeys.join(', ')}\n`;
+        }
+        if (pr.body) {
+          prompt += `\n**Description**: ${pr.body}\n`;
+        }
+        prompt += `\n`;
       });
       prompt += `\n`;
     }
 
-    // Add issues content
+    // Add issues content with full metadata
     if (data.issues.length > 0) {
       prompt += `## GitHub Issues (${data.issues.length})\n`;
       data.issues.forEach(issue => {
-        prompt += `- Issue #${issue.number}: ${issue.title} (${issue.author})\n`;
-        prompt += `  Status: ${issue.state}\n`;
+        prompt += `### Issue #${issue.number}: ${issue.title}\n`;
+        prompt += `- **Author**: @${issue.author}\n`;
+        prompt += `- **Status**: ${issue.state.toUpperCase()}\n`;
+        prompt += `- **URL**: ${issue.url}\n`;
+        prompt += `- **Created**: ${issue.createdAt}\n`;
+        if (issue.closedAt) {
+          prompt += `- **Closed**: ${issue.closedAt}\n`;
+        }
+        if (issue.labels.length > 0) {
+          prompt += `- **Labels**: ${issue.labels.map(l => l.name).join(', ')}\n`;
+        }
+        if (issue.assignees.length > 0) {
+          prompt += `- **Assignees**: ${issue.assignees.map(a => '@' + a).join(', ')}\n`;
+        }
+        if (issue.milestone) {
+          prompt += `- **Milestone**: ${issue.milestone.title}\n`;
+        }
+        if (issue.body) {
+          prompt += `\n**Description**: ${issue.body}\n`;
+        }
+        prompt += `\n`;
       });
       prompt += `\n`;
     }
 
-    // Add Jira content
+    // Add Jira content with full project data
     if (data.jiraIssues.length > 0) {
       prompt += `## Jira Issues (${data.jiraIssues.length})\n`;
       data.jiraIssues.forEach(issue => {
-        prompt += `- ${issue.key}: ${issue.summary}\n`;
-        prompt += `  Status: ${issue.status}\n`;
+        prompt += `### ${issue.key}: ${issue.summary}\n`;
+        prompt += `- **Type**: ${issue.issueType}\n`;
+        prompt += `- **Status**: ${issue.status}\n`;
+        prompt += `- **Priority**: ${issue.priority}\n`;
+        prompt += `- **Assignee**: ${issue.assignee}\n`;
+        prompt += `- **Reporter**: ${issue.reporter}\n`;
+        prompt += `- **Project**: ${issue.project}\n`;
+        prompt += `- **URL**: ${issue.url}\n`;
+        prompt += `- **Created**: ${issue.created}\n`;
+        if (issue.resolved) {
+          prompt += `- **Resolved**: ${issue.resolved}\n`;
+        }
+        if (issue.components.length > 0) {
+          prompt += `- **Components**: ${issue.components.join(', ')}\n`;
+        }
+        if (issue.fixVersions.length > 0) {
+          prompt += `- **Fix Versions**: ${issue.fixVersions.join(', ')}\n`;
+        }
+        if (issue.labels.length > 0) {
+          prompt += `- **Labels**: ${issue.labels.join(', ')}\n`;
+        }
+        if (issue.description) {
+          prompt += `\n**Description**: ${issue.description}\n`;
+        }
+        prompt += `\n`;
       });
       prompt += `\n`;
     }
 
-    prompt += `Please create a comprehensive ${docType} document that synthesizes information from all provided sources. Follow the template structure and create clear, professional documentation.\n\n`;
+    prompt += `## INSTRUCTIONS\n`;
+    prompt += `Create a comprehensive ${docType} document that:\n`;
+    prompt += `1. **Uses ALL hard data** - Include exact numbers, dates, names, URLs, and statistics from above\n`;
+    prompt += `2. **Synthesizes with AI** - Provide intelligent analysis, insights, and professional formatting\n`;
+    prompt += `3. **Follows template structure** - Use the template format below as a guide\n`;
+    prompt += `4. **Links to sources** - Reference specific PRs, issues, discussions, and Jira tickets\n`;
+    prompt += `5. **Provides actionable content** - Extract decisions, action items, and next steps from the data\n\n`;
+    
     prompt += `Template Structure:\n${template}`;
 
     return prompt;
@@ -280,16 +344,8 @@ class AIDocumentGenerator {
       core.info(`Generating ${docType} document using AI...`);
       const aiContent = await this.generateCompletion(prompt);
       
-      let finalContent;
-      if (aiContent) {
-        finalContent = aiContent;
-      } else {
-        core.warning('AI generation failed, using fallback template');
-        finalContent = this.createFallbackContent(docType, data, template);
-      }
-
       // Save document
-      return await this.saveDocument(docType, data, finalContent);
+      return await this.saveDocument(docType, data, aiContent);
 
     } catch (error) {
       core.error(`Single document generation failed for ${docType}: ${error.message}`);
@@ -313,18 +369,16 @@ class AIDocumentGenerator {
       // Generate all content with single AI call
       const aiContent = await this.generateCompletion(prompt);
       
-      if (!aiContent) {
-        core.warning('Batched AI generation failed, falling back to individual templates');
-        return await this.generateFallbackDocuments(docTypes, data, templates);
-      }
-      
       // Parse the batched response
       const parsedDocuments = this.parseBatchedResponse(aiContent, docTypes);
       
       // Save each document
       const results = [];
       for (const docType of docTypes) {
-        const content = parsedDocuments[docType] || this.createFallbackContent(docType, data, templates[docType]);
+        const content = parsedDocuments[docType];
+        if (!content) {
+          throw new Error(`Failed to parse ${docType} from AI response`);
+        }
         const result = await this.saveDocument(docType, data, content);
         if (result) {
           results.push(result);
@@ -335,14 +389,7 @@ class AIDocumentGenerator {
       
     } catch (error) {
       core.error(`Batched generation failed: ${error.message}`);
-      core.info('Falling back to individual template generation...');
-      
-      // Fallback to template-only generation
-      const templates = {};
-      for (const docType of docTypes) {
-        templates[docType] = await this.loadTemplate(docType);
-      }
-      return await this.generateFallbackDocuments(docTypes, data, templates);
+      throw error;
     }
   }
 
@@ -417,58 +464,6 @@ class AIDocumentGenerator {
     }
   }
 
-  createFallbackContent(docType, data, template) {
-    const currentDate = new Date().toISOString().split('T')[0];
-    
-    // Simple variable replacement
-    let content = template;
-    content = content.replace(/{title}/g, data.discussion?.title || `${docType} Document`);
-    content = content.replace(/{date}/g, currentDate);
-    content = content.replace(/{content}/g, this.generateBasicContent(data));
-    content = content.replace(/{summary}/g, this.generateBasicSummary(data));
-    
-    return content;
-  }
-
-  generateBasicContent(data) {
-    let content = '';
-    
-    if (data.discussion) {
-      content += `## Discussion\n${data.discussion.body}\n\n`;
-    }
-    
-    if (data.prs.length > 0) {
-      content += `## Pull Requests\n`;
-      data.prs.forEach(pr => {
-        content += `- [PR #${pr.number}](${pr.url}): ${pr.title}\n`;
-      });
-      content += '\n';
-    }
-    
-    if (data.issues.length > 0) {
-      content += `## Issues\n`;
-      data.issues.forEach(issue => {
-        content += `- [Issue #${issue.number}](${issue.url}): ${issue.title}\n`;
-      });
-      content += '\n';
-    }
-    
-    if (data.jiraIssues.length > 0) {
-      content += `## Jira Issues\n`;
-      data.jiraIssues.forEach(issue => {
-        content += `- [${issue.key}](${issue.url}): ${issue.summary}\n`;
-      });
-      content += '\n';
-    }
-    
-    return content;
-  }
-
-  generateBasicSummary(data) {
-    const totalItems = (data.discussion ? 1 : 0) + data.prs.length + data.issues.length + data.jiraIssues.length;
-    return `Processed ${totalItems} items from ${data.sources.join(', ')} sources.`;
-  }
-
   createBatchedAIPrompt(docTypes, data, templates) {
     let prompt = `Generate ${docTypes.length} different document types in a single response using the following data sources:\n\n`;
     
@@ -535,21 +530,6 @@ class AIDocumentGenerator {
     });
     
     return documents;
-  }
-
-  async generateFallbackDocuments(docTypes, data, templates) {
-    const results = [];
-    
-    for (const docType of docTypes) {
-      core.info(`Generating fallback ${docType} document using template...`);
-      const content = this.createFallbackContent(docType, data, templates[docType]);
-      const result = await this.saveDocument(docType, data, content);
-      if (result) {
-        results.push(result);
-      }
-    }
-    
-    return results;
   }
 
   async saveDocument(docType, data, content) {
