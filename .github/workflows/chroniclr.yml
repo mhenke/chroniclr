@@ -207,6 +207,35 @@ jobs:
               }
             }
 
+      - name: Generate deterministic branch name
+        id: branch-name
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const discussionNumber = context.payload.inputs?.discussion_number || 
+                                   context.payload.discussion?.number || '';
+            const sources = context.payload.inputs?.source || 'discussion';
+            const prNumbers = context.payload.inputs?.pr_numbers || '';
+            const issueNumbers = context.payload.inputs?.issue_numbers || '';
+            const jiraKeys = context.payload.inputs?.jira_keys || '';
+
+            // Create a hash-like identifier from the inputs to ensure branch name uniqueness
+            let branchSuffix = '';
+            if (discussionNumber) branchSuffix += `d${discussionNumber}`;
+            if (sources !== 'discussion') branchSuffix += `-src${sources.replace(/,/g, '_')}`;
+            if (prNumbers) branchSuffix += `-pr${prNumbers.replace(/,/g, '_')}`;
+            if (issueNumbers) branchSuffix += `-iss${issueNumbers.replace(/,/g, '_')}`;
+            if (jiraKeys) branchSuffix += `-jira${jiraKeys.replace(/,/g, '_')}`;
+
+            // Fallback for manual runs without specific parameters
+            if (!branchSuffix) {
+              branchSuffix = `manual-${Date.now().toString().slice(-6)}`;
+            }
+
+            const branchName = `docs/chroniclr-${branchSuffix}`;
+            core.setOutput('name', branchName);
+            core.info(`Generated branch name: ${branchName}`);
+
       - name: Create Pull Request
         if: success()
         uses: peter-evans/create-pull-request@v6
@@ -233,7 +262,9 @@ jobs:
 
             ---
             🤖 *This PR was automatically created by Chroniclr*
-          branch: docs/chroniclr-${{ github.run_number }}
+
+            > **Note:** Re-running the same workflow parameters will update this PR instead of creating a new one.
+          branch: ${{ steps.branch-name.outputs.name }}
           delete-branch: true
           labels: |
             documentation

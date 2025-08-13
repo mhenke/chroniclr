@@ -376,6 +376,10 @@ class AIDocumentGenerator {
 
   async generateBundledDocuments(docTypes, data) {
     try {
+      // Generate the folder name once for all documents in this request
+      const sharedTopic = await this.generateAITopic(data);
+      core.info(`Using shared topic/folder: ${sharedTopic}`);
+
       // Load all templates
       const templates = {};
       for (const docType of docTypes) {
@@ -399,11 +403,19 @@ class AIDocumentGenerator {
         core.warning(
           'Bundled AI generation failed, falling back to individual templates'
         );
-        return await this.generateFallbackDocuments(docTypes, data, templates);
+        return await this.generateFallbackDocuments(
+          docTypes,
+          data,
+          templates,
+          sharedTopic
+        );
       }
 
       // Parse the bundled response
       const parsedResponse = this.parseBundledResponse(aiResponse, docTypes);
+
+      // Use the AI-generated topic if available, otherwise fall back to shared topic
+      const finalTopic = parsedResponse.topic || sharedTopic;
 
       // Save documents and return results
       const results = [];
@@ -415,7 +427,7 @@ class AIDocumentGenerator {
           docType,
           data,
           content,
-          parsedResponse.topic
+          finalTopic
         );
         if (result) {
           results.push(result);
@@ -425,22 +437,37 @@ class AIDocumentGenerator {
       return results;
     } catch (error) {
       core.error(`Bundled generation failed: ${error.message}`);
-      // Fallback to individual generation
-      core.info('Falling back to individual document generation...');
-      const results = [];
+      // Fallback to template generation with shared topic
+      core.info('Falling back to template generation with shared topic...');
+      const templates = {};
       for (const docType of docTypes) {
-        const result = await this.generateSingleDocument(docType, data);
-        if (result) {
-          results.push(result);
-        }
+        templates[docType] = await this.loadTemplate(docType);
       }
-      return results;
+      return await this.generateFallbackDocuments(
+        docTypes,
+        data,
+        templates,
+        sharedTopic
+      );
     }
   }
 
-  async generateFallbackDocuments(docTypes, data, templates) {
+  async generateFallbackDocuments(
+    docTypes,
+    data,
+    templates,
+    sharedTopic = null
+  ) {
     core.info('Using fallback template generation...');
     const results = [];
+
+    // Generate shared topic once if not provided
+    const topic = sharedTopic || (await this.generateAITopic(data));
+    core.info(
+      `Using ${
+        sharedTopic ? 'shared' : 'generated'
+      } topic for fallback: ${topic}`
+    );
 
     for (const docType of docTypes) {
       try {
@@ -449,7 +476,6 @@ class AIDocumentGenerator {
           data,
           templates[docType]
         );
-        const topic = await this.generateAITopic(data);
         const result = await this.saveDocument(docType, data, content, topic);
         if (result) {
           results.push(result);
@@ -508,7 +534,17 @@ class AIDocumentGenerator {
   async saveDocument(docType, data, content, topic = null) {
     try {
       const baseOutputDir = path.join(process.cwd(), 'generated');
-      const sourceFolder = topic || await this.determineSourceFolder(data);
+
+      let sourceFolder;
+      if (topic) {
+        // When topic is provided (bundled generation), create consistent folder name
+        const today = new Date().toISOString().split('T')[0];
+        sourceFolder = `${today}-${topic}`;
+      } else {
+        // Fallback to the original logic for individual generation
+        sourceFolder = await this.determineSourceFolder(data);
+      }
+
       const outputDir = path.join(baseOutputDir, sourceFolder);
       await fs.mkdir(outputDir, { recursive: true });
 
@@ -517,7 +553,9 @@ class AIDocumentGenerator {
 
       await fs.writeFile(filePath, content, 'utf8');
 
-      core.info(`✅ Generated document: ${fileName}`);
+      core.info(
+        `✅ Generated document: ${fileName} in folder: ${sourceFolder}`
+      );
       return { filePath, fileName, content };
     } catch (error) {
       core.error(`Failed to save ${docType} document: ${error.message}`);
