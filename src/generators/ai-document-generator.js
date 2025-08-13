@@ -37,12 +37,10 @@ class AIDocumentGenerator {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-
-
   identifyRateLimitType(response) {
     const url = response.url || '';
     const retryAfter = response.headers.get('retry-after');
-    
+
     if (url.includes('models.github.ai')) {
       let waitTime = '';
       if (retryAfter) {
@@ -51,7 +49,7 @@ class AIDocumentGenerator {
       }
       return `GitHub Models API${waitTime}`;
     }
-    
+
     return 'Unknown API endpoint';
   }
 
@@ -61,29 +59,32 @@ class AIDocumentGenerator {
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        core.info(`Making AI API request... (attempt ${attempt + 1}/${maxRetries + 1})`);
+        core.info(
+          `Making AI API request... (attempt ${attempt + 1}/${maxRetries + 1})`
+        );
 
         const response = await fetch(`${this.baseURL}/chat/completions`, {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${this.apiKey}`,
-            'Content-Type': 'application/json'
+            Authorization: `Bearer ${this.apiKey}`,
+            'Content-Type': 'application/json',
           },
           body: JSON.stringify({
             model: this.model,
             messages: [
               {
                 role: 'system',
-                content: 'You are a professional documentation generator. Create well-structured, comprehensive documents based on the provided data sources.'
+                content:
+                  'You are a professional documentation generator. Create well-structured, comprehensive documents based on the provided data sources.',
               },
               {
                 role: 'user',
-                content: prompt
-              }
+                content: prompt,
+              },
             ],
             max_tokens: 4000,
-            temperature: 0.3
-          })
+            temperature: 0.3,
+          }),
         });
 
         if (!response.ok) {
@@ -97,9 +98,8 @@ class AIDocumentGenerator {
           core.info('AI response received successfully');
           return data.choices[0].message.content;
         }
-        
-        throw new Error('No AI response content received');
 
+        throw new Error('No AI response content received');
       } catch (error) {
         core.error(`AI API request error: ${error.message}`);
         if (attempt === maxRetries) {
@@ -108,13 +108,18 @@ class AIDocumentGenerator {
         await this.sleep(baseDelayMs * Math.pow(2, attempt));
       }
     }
-    
+
     throw new Error('AI API failed after all retry attempts');
   }
 
   async loadTemplate(docType) {
-    const templatePath = path.join(process.cwd(), 'src', 'templates', `${docType}.md`);
-    
+    const templatePath = path.join(
+      process.cwd(),
+      'src',
+      'templates',
+      `${docType}.md`
+    );
+
     try {
       const template = await fs.readFile(templatePath, 'utf8');
       return template;
@@ -143,13 +148,15 @@ class AIDocumentGenerator {
   }
 
   async collectDataFromSources() {
-    const sourceModules = (process.env.SOURCE_MODULES || 'discussion').split(',').map(s => s.trim());
+    const sourceModules = (process.env.SOURCE_MODULES || 'discussion')
+      .split(',')
+      .map((s) => s.trim());
     const collectedData = {
       discussion: null,
       prs: [],
       issues: [],
       jiraIssues: [],
-      sources: sourceModules
+      sources: sourceModules,
     };
 
     // Collect Discussion Data
@@ -160,21 +167,27 @@ class AIDocumentGenerator {
         body: process.env.DISCUSSION_BODY || '',
         author: process.env.DISCUSSION_AUTHOR || 'unknown',
         url: process.env.DISCUSSION_URL || '',
-        commentsCount: parseInt(process.env.DISCUSSION_COMMENTS_COUNT) || 0
+        commentsCount: parseInt(process.env.DISCUSSION_COMMENTS_COUNT) || 0,
       };
-      core.info(`✅ Collected discussion data: #${collectedData.discussion.number}`);
+      core.info(
+        `✅ Collected discussion data: #${collectedData.discussion.number}`
+      );
     }
 
     // Collect PR Data
     if (sourceModules.includes('pr') && process.env.PR_NUMBERS) {
-      const prNumbers = process.env.PR_NUMBERS.split(',').map(n => n.trim()).filter(n => n);
+      const prNumbers = process.env.PR_NUMBERS.split(',')
+        .map((n) => n.trim())
+        .filter((n) => n);
       collectedData.prs = await this.prClient.fetchPullRequests(prNumbers);
       core.info(`✅ Collected ${collectedData.prs.length} PRs`);
     }
 
     // Collect Issues Data
     if (sourceModules.includes('issues') && process.env.ISSUE_NUMBERS) {
-      const issueNumbers = process.env.ISSUE_NUMBERS.split(',').map(n => n.trim()).filter(n => n);
+      const issueNumbers = process.env.ISSUE_NUMBERS.split(',')
+        .map((n) => n.trim())
+        .filter((n) => n);
       collectedData.issues = await this.issuesClient.fetchIssues(issueNumbers);
       core.info(`✅ Collected ${collectedData.issues.length} issues`);
     }
@@ -182,7 +195,9 @@ class AIDocumentGenerator {
     // Collect Jira Data
     if (sourceModules.includes('jira') && process.env.JIRA_KEYS) {
       const jiraClient = this.getJiraClient();
-      const jiraKeys = process.env.JIRA_KEYS.split(',').map(k => k.trim()).filter(k => k);
+      const jiraKeys = process.env.JIRA_KEYS.split(',')
+        .map((k) => k.trim())
+        .filter((k) => k);
       collectedData.jiraIssues = await jiraClient.fetchJiraIssues(jiraKeys);
       core.info(`✅ Collected ${collectedData.jiraIssues.length} Jira issues`);
     }
@@ -207,17 +222,26 @@ class AIDocumentGenerator {
     // Add PR content with detailed file changes
     if (data.prs.length > 0) {
       prompt += `## Pull Requests (${data.prs.length})\n`;
-      data.prs.forEach(pr => {
+      data.prs.forEach((pr) => {
         prompt += `### PR #${pr.number}: ${pr.title}\n`;
         prompt += `- **Author**: @${pr.author}\n`;
         prompt += `- **Status**: ${pr.state}${pr.merged ? ' (MERGED)' : ''}\n`;
         prompt += `- **URL**: ${pr.url}\n`;
         prompt += `- **Files Changed**: ${pr.files.length}\n`;
         if (pr.files.length > 0) {
-          const totalAdditions = pr.files.reduce((sum, file) => sum + file.additions, 0);
-          const totalDeletions = pr.files.reduce((sum, file) => sum + file.deletions, 0);
+          const totalAdditions = pr.files.reduce(
+            (sum, file) => sum + file.additions,
+            0
+          );
+          const totalDeletions = pr.files.reduce(
+            (sum, file) => sum + file.deletions,
+            0
+          );
           prompt += `- **Lines**: +${totalAdditions}, -${totalDeletions}\n`;
-          prompt += `- **Key Files**: ${pr.files.slice(0, 5).map(f => f.filename).join(', ')}\n`;
+          prompt += `- **Key Files**: ${pr.files
+            .slice(0, 5)
+            .map((f) => f.filename)
+            .join(', ')}\n`;
         }
         if (pr.jiraKeys.length > 0) {
           prompt += `- **Jira Keys**: ${pr.jiraKeys.join(', ')}\n`;
@@ -233,7 +257,7 @@ class AIDocumentGenerator {
     // Add issues content with full metadata
     if (data.issues.length > 0) {
       prompt += `## GitHub Issues (${data.issues.length})\n`;
-      data.issues.forEach(issue => {
+      data.issues.forEach((issue) => {
         prompt += `### Issue #${issue.number}: ${issue.title}\n`;
         prompt += `- **Author**: @${issue.author}\n`;
         prompt += `- **Status**: ${issue.state.toUpperCase()}\n`;
@@ -243,10 +267,14 @@ class AIDocumentGenerator {
           prompt += `- **Closed**: ${issue.closedAt}\n`;
         }
         if (issue.labels.length > 0) {
-          prompt += `- **Labels**: ${issue.labels.map(l => l.name).join(', ')}\n`;
+          prompt += `- **Labels**: ${issue.labels
+            .map((l) => l.name)
+            .join(', ')}\n`;
         }
         if (issue.assignees.length > 0) {
-          prompt += `- **Assignees**: ${issue.assignees.map(a => '@' + a).join(', ')}\n`;
+          prompt += `- **Assignees**: ${issue.assignees
+            .map((a) => '@' + a)
+            .join(', ')}\n`;
         }
         if (issue.milestone) {
           prompt += `- **Milestone**: ${issue.milestone.title}\n`;
@@ -262,7 +290,7 @@ class AIDocumentGenerator {
     // Add Jira content with full project data
     if (data.jiraIssues.length > 0) {
       prompt += `## Jira Issues (${data.jiraIssues.length})\n`;
-      data.jiraIssues.forEach(issue => {
+      data.jiraIssues.forEach((issue) => {
         prompt += `### ${issue.key}: ${issue.summary}\n`;
         prompt += `- **Type**: ${issue.issueType}\n`;
         prompt += `- **Status**: ${issue.status}\n`;
@@ -299,7 +327,7 @@ class AIDocumentGenerator {
     prompt += `3. **Follows template structure** - Use the template format below as a guide\n`;
     prompt += `4. **Links to sources** - Reference specific PRs, issues, discussions, and Jira tickets\n`;
     prompt += `5. **Provides actionable content** - Extract decisions, action items, and next steps from the data\n\n`;
-    
+
     prompt += `Template Structure:\n${template}`;
 
     return prompt;
@@ -308,14 +336,18 @@ class AIDocumentGenerator {
   async generateDocument() {
     try {
       const docTypesString = process.env.DOC_TYPE || 'summary';
-      const docTypes = docTypesString.split(' ').map(type => type.trim()).filter(type => type);
-      
-      core.info(`Processing ${docTypes.length} document types: ${docTypes.join(', ')}`);
-      
-      
+      const docTypes = docTypesString
+        .split(' ')
+        .map((type) => type.trim())
+        .filter((type) => type);
+
+      core.info(
+        `Processing ${docTypes.length} document types: ${docTypes.join(', ')}`
+      );
+
       // Collect data from all enabled sources
       const data = await this.collectDataFromSources();
-      
+
       // Use batched generation for multiple documents to reduce API calls
       if (docTypes.length > 1) {
         core.info('Using batched generation to avoid rate limits...');
@@ -325,7 +357,6 @@ class AIDocumentGenerator {
         const result = await this.generateSingleDocument(docTypes[0], data);
         return result ? [result] : [];
       }
-      
     } catch (error) {
       core.error(`Document generation failed: ${error.message}`);
       throw error;
@@ -336,42 +367,45 @@ class AIDocumentGenerator {
     try {
       // Load template
       const template = await this.loadTemplate(docType);
-      
+
       // Create AI prompt
       const prompt = this.createAIPrompt(docType, data, template);
-      
+
       // Generate content with AI
       core.info(`Generating ${docType} document using AI...`);
       const aiContent = await this.generateCompletion(prompt);
-      
+
       // Save document
       return await this.saveDocument(docType, data, aiContent);
-
     } catch (error) {
-      core.error(`Single document generation failed for ${docType}: ${error.message}`);
+      core.error(
+        `Single document generation failed for ${docType}: ${error.message}`
+      );
       return null;
     }
   }
 
   async generateBatchedDocuments(docTypes, data) {
     try {
-      core.info(`Generating ${docTypes.length} documents in a single AI request...`);
-      
+      core.info(
+        `Generating ${docTypes.length} documents in a single AI request...`
+      );
+
       // Load all templates
       const templates = {};
       for (const docType of docTypes) {
         templates[docType] = await this.loadTemplate(docType);
       }
-      
+
       // Create batched AI prompt
       const prompt = this.createBatchedAIPrompt(docTypes, data, templates);
-      
+
       // Generate all content with single AI call
       const aiContent = await this.generateCompletion(prompt);
-      
+
       // Parse the batched response
       const parsedDocuments = this.parseBatchedResponse(aiContent, docTypes);
-      
+
       // Save each document
       const results = [];
       for (const docType of docTypes) {
@@ -384,9 +418,8 @@ class AIDocumentGenerator {
           results.push(result);
         }
       }
-      
+
       return results;
-      
     } catch (error) {
       core.error(`Batched generation failed: ${error.message}`);
       throw error;
@@ -397,55 +430,75 @@ class AIDocumentGenerator {
     // Collect content for topic generation
     let content = '';
     if (data.discussion) content += `Discussion: "${data.discussion.title}" `;
-    if (data.prs.length > 0) content += `PRs: ${data.prs.map(pr => pr.title).join(', ')} `;
-    if (data.issues.length > 0) content += `Issues: ${data.issues.map(i => i.title).join(', ')} `;
-    if (data.jiraIssues.length > 0) content += `Jira: ${data.jiraIssues.map(j => j.summary).join(', ')} `;
+    if (data.prs.length > 0)
+      content += `PRs: ${data.prs.map((pr) => pr.title).join(', ')} `;
+    if (data.issues.length > 0)
+      content += `Issues: ${data.issues.map((i) => i.title).join(', ')} `;
+    if (data.jiraIssues.length > 0)
+      content += `Jira: ${data.jiraIssues.map((j) => j.summary).join(', ')} `;
 
     if (!content.trim()) return 'general';
 
     // Simple topic extraction without AI to avoid rate limits
-    return this.extractTopicFromTitle(data.discussion?.title || data.prs[0]?.title || 'general');
+    return this.extractTopicFromTitle(
+      data.discussion?.title || data.prs[0]?.title || 'general'
+    );
   }
 
   extractTopicFromTitle(title) {
     if (!title) return 'general';
-    
+
     // Extract meaningful keywords, skip common words
-    const skipWords = ['the', 'and', 'for', 'with', 'fix', 'add', 'update', 'improve', 'bug', 'issue'];
-    const words = title.toLowerCase()
+    const skipWords = [
+      'the',
+      'and',
+      'for',
+      'with',
+      'fix',
+      'add',
+      'update',
+      'improve',
+      'bug',
+      'issue',
+    ];
+    const words = title
+      .toLowerCase()
       .replace(/[^a-z0-9\s]/g, '')
       .split(/\s+/)
-      .filter(word => word.length > 2 && !skipWords.includes(word))
+      .filter((word) => word.length > 2 && !skipWords.includes(word))
       .slice(0, 3);
-    
+
     if (words.length === 0) {
-      return title.toLowerCase()
-        .replace(/[^a-z0-9\s]/g, '')
-        .split(/\s+/)
-        .slice(0, 3)
-        .join('-') || 'general';
+      return (
+        title
+          .toLowerCase()
+          .replace(/[^a-z0-9\s]/g, '')
+          .split(/\s+/)
+          .slice(0, 3)
+          .join('-') || 'general'
+      );
     }
-    
+
     return words.join('-').substring(0, 20);
   }
 
   async determineSourceFolder(data) {
     const today = new Date().toISOString().split('T')[0];
     const topic = await this.generateAITopic(data);
-    
+
     // Check if folder exists and add version number if needed
     const baseFolder = `${today}-${topic}`;
     const basePath = path.join(process.cwd(), 'generated');
-    
+
     let folderName = baseFolder;
     let version = 2;
-    
+
     const fs = require('fs');
     while (fs.existsSync(path.join(basePath, folderName))) {
       folderName = `${baseFolder}-${version}`;
       version++;
     }
-    
+
     return folderName;
   }
 
@@ -453,11 +506,15 @@ class AIDocumentGenerator {
     if (data.discussion) {
       return `${docType}-${data.discussion.number}.md`;
     } else if (data.prs.length > 0) {
-      return `${docType}-pr-${data.prs.map(pr => pr.number).join('-')}.md`;
+      return `${docType}-pr-${data.prs.map((pr) => pr.number).join('-')}.md`;
     } else if (data.issues.length > 0) {
-      return `${docType}-issues-${data.issues.map(i => i.number).join('-')}.md`;
+      return `${docType}-issues-${data.issues
+        .map((i) => i.number)
+        .join('-')}.md`;
     } else if (data.jiraIssues.length > 0) {
-      return `${docType}-jira-${data.jiraIssues.map(j => j.key).join('-')}.md`;
+      return `${docType}-jira-${data.jiraIssues
+        .map((j) => j.key)
+        .join('-')}.md`;
     } else {
       const timestamp = Date.now();
       return `${docType}-${timestamp}.md`;
@@ -466,7 +523,7 @@ class AIDocumentGenerator {
 
   createBatchedAIPrompt(docTypes, data, templates) {
     let prompt = `Generate ${docTypes.length} different document types in a single response using the following data sources:\n\n`;
-    
+
     // Add data sources
     if (data.discussion) {
       prompt += `## Discussion Data\n`;
@@ -474,61 +531,110 @@ class AIDocumentGenerator {
       prompt += `Author: ${data.discussion.author}\n`;
       prompt += `Content:\n${data.discussion.body}\n\n`;
     }
-    
+
     if (data.prs.length > 0) {
       prompt += `## Pull Requests (${data.prs.length})\n`;
-      data.prs.forEach(pr => {
+      data.prs.forEach((pr) => {
         prompt += `- PR #${pr.number}: ${pr.title} (${pr.author})\n`;
       });
       prompt += `\n`;
     }
-    
+
     if (data.issues.length > 0) {
       prompt += `## GitHub Issues (${data.issues.length})\n`;
-      data.issues.forEach(issue => {
+      data.issues.forEach((issue) => {
         prompt += `- Issue #${issue.number}: ${issue.title} (${issue.author})\n`;
       });
       prompt += `\n`;
     }
-    
+
     if (data.jiraIssues.length > 0) {
       prompt += `## Jira Issues (${data.jiraIssues.length})\n`;
-      data.jiraIssues.forEach(issue => {
+      data.jiraIssues.forEach((issue) => {
         prompt += `- ${issue.key}: ${issue.summary}\n`;
       });
       prompt += `\n`;
     }
-    
-    prompt += `Please generate the following ${docTypes.length} documents. Use the format:\n\n`;
-    prompt += `=== DOCUMENT_TYPE_NAME ===\n[content]\n=== END_DOCUMENT_TYPE_NAME ===\n\n`;
-    
-    docTypes.forEach(docType => {
+
+    prompt += `Please generate the following ${docTypes.length} documents. Use EXACTLY this format with EXACT markers:\n\n`;
+
+    docTypes.forEach((docType) => {
+      const upperDocType = docType.toUpperCase();
+      prompt += `=== ${upperDocType} ===\n`;
+      prompt += `[Generate ${docType} content here]\n`;
+      prompt += `=== END_${upperDocType} ===\n\n`;
+
       prompt += `Required document: ${docType}\n`;
       prompt += `Template structure for ${docType}:\n${templates[docType]}\n\n`;
     });
-    
+
     return prompt;
   }
 
   parseBatchedResponse(aiContent, docTypes) {
     const documents = {};
-    
-    docTypes.forEach(docType => {
-      const startMarker = `=== ${docType.toUpperCase()} ===`;
-      const endMarker = `=== END_${docType.toUpperCase()} ===`;
-      
-      const startIndex = aiContent.indexOf(startMarker);
-      const endIndex = aiContent.indexOf(endMarker);
-      
-      if (startIndex !== -1 && endIndex !== -1) {
-        const content = aiContent.substring(startIndex + startMarker.length, endIndex).trim();
-        documents[docType] = content;
-        core.info(`✅ Parsed ${docType} document from batched response`);
+
+    docTypes.forEach((docType) => {
+      const upperDocType = docType.toUpperCase();
+      const startMarker = `=== ${upperDocType} ===`;
+      const endMarker = `=== END_${upperDocType} ===`;
+
+      // Try exact match first
+      let startIndex = aiContent.indexOf(startMarker);
+      let endIndex = aiContent.indexOf(endMarker);
+
+      // If exact match fails, try case-insensitive search
+      if (startIndex === -1) {
+        const regex = new RegExp(
+          `===\\s*${upperDocType.replace(/-/g, '[-_\\s]*')}\\s*===`,
+          'i'
+        );
+        const match = aiContent.match(regex);
+        if (match) {
+          startIndex = match.index;
+        }
+      }
+
+      if (endIndex === -1) {
+        const regex = new RegExp(
+          `===\\s*END[-_\\s]*${upperDocType.replace(/-/g, '[-_\\s]*')}\\s*===`,
+          'i'
+        );
+        const match = aiContent.match(regex);
+        if (match) {
+          endIndex = match.index;
+        }
+      }
+
+      if (startIndex !== -1 && endIndex !== -1 && endIndex > startIndex) {
+        // Calculate the actual start position after the marker
+        const actualStartMarker = aiContent
+          .substring(startIndex)
+          .match(/===.*?===/)[0];
+        const contentStart = startIndex + actualStartMarker.length;
+        const content = aiContent.substring(contentStart, endIndex).trim();
+
+        if (content.length > 0) {
+          documents[docType] = content;
+          core.info(
+            `✅ Parsed ${docType} document from batched response (${content.length} chars)`
+          );
+        } else {
+          core.warning(
+            `❌ Empty content found for ${docType} in batched response`
+          );
+        }
       } else {
         core.warning(`❌ Could not parse ${docType} from batched response`);
+        core.info(`Debug: Looking for "${startMarker}" and "${endMarker}"`);
+
+        // Log a sample of the AI content to help debug
+        const preview =
+          aiContent.substring(0, 500) + (aiContent.length > 500 ? '...' : '');
+        core.info(`AI Response Preview: ${preview}`);
       }
     });
-    
+
     return documents;
   }
 
@@ -538,15 +644,14 @@ class AIDocumentGenerator {
       const sourceFolder = await this.determineSourceFolder(data);
       const outputDir = path.join(baseOutputDir, sourceFolder);
       await fs.mkdir(outputDir, { recursive: true });
-      
+
       const fileName = this.generateFileName(docType, data);
       const filePath = path.join(outputDir, fileName);
-      
+
       await fs.writeFile(filePath, content, 'utf8');
-      
+
       core.info(`✅ Generated document: ${fileName}`);
       return { filePath, fileName, content };
-      
     } catch (error) {
       core.error(`Failed to save ${docType} document: ${error.message}`);
       return null;
@@ -557,7 +662,7 @@ class AIDocumentGenerator {
 // CLI execution
 if (require.main === module) {
   const generator = new AIDocumentGenerator();
-  generator.generateDocument().catch(error => {
+  generator.generateDocument().catch((error) => {
     core.setFailed(error.message);
     process.exit(1);
   });
