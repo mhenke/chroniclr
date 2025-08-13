@@ -267,9 +267,9 @@ class AIDocumentGenerator {
         finalContent = this.createFallbackContent(docType, data, template);
       }
 
-      // Save document to organized generated folder
+      // Save document to AI-organized folder
       const baseOutputDir = path.join(process.cwd(), 'generated');
-      const sourceFolder = this.determineSourceFolder(data);
+      const sourceFolder = await this.determineSourceFolder(data);
       const outputDir = path.join(baseOutputDir, sourceFolder);
       await fs.mkdir(outputDir, { recursive: true });
       
@@ -287,21 +287,94 @@ class AIDocumentGenerator {
     }
   }
 
-  determineSourceFolder(data) {
-    // Determine primary source for folder organization
-    if (data.discussion) {
-      return 'discussions';
-    } else if (data.prs.length > 0) {
-      return 'prs';
-    } else if (data.issues.length > 0) {
-      return 'issues';
-    } else if (data.jiraIssues.length > 0) {
-      return 'jira';
-    } else {
-      // Multi-source or unknown - use current date
-      const today = new Date().toISOString().split('T')[0];
-      return `multi-source/${today}`;
+  async generateAITopic(data) {
+    // Collect all content for AI analysis
+    let content = '';
+    if (data.discussion) content += `Discussion: "${data.discussion.title}" `;
+    if (data.prs.length > 0) content += `PRs: ${data.prs.map(pr => pr.title).join(', ')} `;
+    if (data.issues.length > 0) content += `Issues: ${data.issues.map(i => i.title).join(', ')} `;
+    if (data.jiraIssues.length > 0) content += `Jira: ${data.jiraIssues.map(j => j.summary).join(', ')} `;
+
+    if (!content.trim()) return 'general';
+
+    try {
+      const topicPrompt = `Analyze this content and extract 1-3 specific theme words (maximum 20 characters total):
+
+${content}
+
+Be specific, not generic. Return ONLY 1-3 words separated by hyphen, lowercase, no special characters.
+Examples: "auth-system", "mobile-ui", "bug-fixes", "database-performance", "login-security"
+Bad examples: "database", "mobile", "security" (too generic)`;
+
+      const aiTopic = await this.generateCompletion(topicPrompt);
+      if (aiTopic) {
+        // Clean up AI response
+        const cleaned = aiTopic.toLowerCase()
+          .replace(/[^a-z0-9-]/g, '')
+          .replace(/^-+|-+$/g, '')
+          .substring(0, 20);
+        return cleaned || 'general';
+      }
+    } catch (error) {
+      core.warning(`AI topic generation failed: ${error.message}`);
     }
+
+    // Fallback: extract from discussion title or first PR
+    if (data.discussion) {
+      return this.extractTopicFromTitle(data.discussion.title);
+    } else if (data.prs.length > 0) {
+      return this.extractTopicFromTitle(data.prs[0].title);
+    } else if (data.issues.length > 0) {
+      return this.extractTopicFromTitle(data.issues[0].title);
+    } else if (data.jiraIssues.length > 0) {
+      return this.extractTopicFromTitle(data.jiraIssues[0].summary);
+    }
+
+    return 'general';
+  }
+
+  extractTopicFromTitle(title) {
+    if (!title) return 'general';
+    
+    // Extract meaningful keywords, skip common words
+    const skipWords = ['the', 'and', 'for', 'with', 'fix', 'add', 'update', 'improve', 'bug', 'issue'];
+    const words = title.toLowerCase()
+      .replace(/[^a-z0-9\s]/g, '')
+      .split(/\s+/)
+      .filter(word => word.length > 2 && !skipWords.includes(word))
+      .slice(0, 3);
+    
+    if (words.length === 0) {
+      // If no meaningful words, use first few words
+      return title.toLowerCase()
+        .replace(/[^a-z0-9\s]/g, '')
+        .split(/\s+/)
+        .slice(0, 3)
+        .join('-') || 'general';
+    }
+    
+    return words.join('-').substring(0, 20);
+  }
+
+  async determineSourceFolder(data) {
+    const today = new Date().toISOString().split('T')[0];
+    const topic = await this.generateAITopic(data);
+    
+    // Check if folder exists and add version number if needed
+    const fs = require('fs');
+    const path = require('path');
+    const baseFolder = `${today}-${topic}`;
+    const basePath = path.join(process.cwd(), 'generated');
+    
+    let folderName = baseFolder;
+    let version = 2;
+    
+    while (fs.existsSync(path.join(basePath, folderName))) {
+      folderName = `${baseFolder}-${version}`;
+      version++;
+    }
+    
+    return folderName;
   }
 
   generateFileName(docType, data) {

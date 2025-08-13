@@ -142,12 +142,11 @@ chroniclr/
 │   ├── templates/              # Document templates
 │   └── utils/                  # Processing utilities
 ├── docs/                       # Chroniclr project documentation
-├── generated/                  # Generated documentation (organized by source)
-│   ├── discussions/            # Discussion-based documents
-│   ├── prs/                   # Pull request analysis
-│   ├── issues/                # GitHub Issues reports  
-│   ├── jira/                  # Jira integration reports
-│   └── multi-source/          # Cross-platform reports
+├── generated/                  # Generated documentation (AI-organized by date/topic)
+│   ├── 2025-01-13-auth-system/ # AI-generated topic folders
+│   ├── 2025-01-14-mobile-ui/   # Organized by date and content theme
+│   ├── 2025-01-15-bug-fixes/   # Scannable and chronological
+│   └── README.md               # Organization guide
 ├── chroniclr.config.json       # System configuration
 └── package.json
 ```
