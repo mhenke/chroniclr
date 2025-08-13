@@ -145,6 +145,12 @@ jobs:
             core.setOutput('url', discussion.html_url);
 
       - name: Validate discussion data
+        env:
+          DISCUSSION_NUMBER: ${{ steps.discussion.outputs.number }}
+          DISCUSSION_TITLE: ${{ steps.discussion.outputs.title }}
+          DISCUSSION_BODY: ${{ steps.discussion.outputs.body }}
+          DISCUSSION_AUTHOR: ${{ steps.discussion.outputs.author }}
+          DISCUSSION_URL: ${{ steps.discussion.outputs.url }}
         run: npm run validate-discussion
 
       - name: Determine document types
@@ -160,6 +166,11 @@ jobs:
           PR_NUMBERS: ${{ github.event.inputs.pr_numbers }}
           JIRA_KEYS: ${{ github.event.inputs.jira_keys }}
           ISSUE_NUMBERS: ${{ github.event.inputs.issue_numbers }}
+          DISCUSSION_NUMBER: ${{ steps.discussion.outputs.number }}
+          DISCUSSION_TITLE: ${{ steps.discussion.outputs.title }}
+          DISCUSSION_BODY: ${{ steps.discussion.outputs.body }}
+          DISCUSSION_AUTHOR: ${{ steps.discussion.outputs.author }}
+          DISCUSSION_URL: ${{ steps.discussion.outputs.url }}
         run: |
           npm run generate-document
 
