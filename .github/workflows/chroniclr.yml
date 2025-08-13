@@ -1,9 +1,17 @@
 name: Chroniclr Documentation Generator
 
 run-name: >
-  📚 ${{ 
-    github.event.discussion.title || 
+  📚 ${{
+    github.event.discussion.title && format('{0} (#{1})', github.event.discussion.title, github.event.discussion.number) ||
     'Generated Documentation'
+  }}${{
+    github.event.inputs.discussion_number && format(' • D#{0}', github.event.inputs.discussion_number) || ''
+  }}${{
+    github.event.inputs.pr_numbers && format(' • PR#{0}', github.event.inputs.pr_numbers) || ''
+  }}${{
+    github.event.inputs.issue_numbers && format(' • I#{0}', github.event.inputs.issue_numbers) || ''
+  }}${{
+    github.event.inputs.jira_keys && format(' • {0}', github.event.inputs.jira_keys) || ''
   }}
 
 on:
