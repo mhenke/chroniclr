@@ -172,6 +172,7 @@ jobs:
             core.setOutput('url', discussion.html_url);
 
       - name: Validate discussion data
+        if: ${{ contains(github.event.inputs.source || 'discussion', 'discussion') }}
         env:
           DISCUSSION_NUMBER: ${{ steps.discussion.outputs.number }}
           DISCUSSION_TITLE: ${{ steps.discussion.outputs.title }}
@@ -257,6 +258,11 @@ jobs:
           SOURCE_MODULES: ${{ github.event.inputs.source || 'discussion' }}
           PR_NUMBERS: ${{ github.event.inputs.pr_numbers }}
           JIRA_KEYS: ${{ github.event.inputs.jira_keys }}
+          # Jira API credentials
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_PROJECT: ${{ secrets.JIRA_PROJECT }}
           DISCUSSION_NUMBER: ${{ steps.discussion.outputs.number }}
           DISCUSSION_TITLE: ${{ steps.discussion.outputs.title }}
           DISCUSSION_BODY: ${{ steps.discussion.outputs.body }}
