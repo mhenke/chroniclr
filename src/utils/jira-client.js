@@ -298,8 +298,10 @@ ${failureCount === jiraKeys.length ? '• No issues found - create test data wit
   /**
    * Generate detailed sprint status report data
    */
-  generateSprintStatusReport(issues, prData = null) {
-    const summary = this.generateJiraSummary(issues);
+  async generateSprintStatusReport(issues, prData = null) {
+    // Fetch current sprint data
+    const currentSprint = await this.getCurrentSprint();
+    const summary = this.generateJiraSummary(issues, currentSprint);
     const sprintData = summary.sprint || {};
 
     // Calculate sprint progress

@@ -124,7 +124,7 @@ class AIDocumentGenerator {
     return collectedData;
   }
 
-  createAIPrompt(docType, data, template) {
+  async createAIPrompt(docType, data, template) {
     let prompt = `Create a ${docType} document with the following data:\n\n`;
 
     // Discussion data
@@ -146,19 +146,48 @@ class AIDocumentGenerator {
       prompt += `\n`;
     }
 
-    // Jira data - simplified
+    // Jira data - detailed for sprint-status documents
     if (data.jiraIssues.length > 0) {
       prompt += `**Jira Issues:**\n`;
       data.jiraIssues.forEach((issue) => {
-        prompt += `- ${issue.key}: ${issue.summary} (${issue.status})\n`;
+        prompt += `- ${issue.key}: ${issue.summary} (${issue.status}, ${issue.priority})\n`;
+        prompt += `  Type: ${issue.issueType}, Assignee: ${issue.assignee}\n`;
       });
       prompt += `\n`;
+
+      // For sprint-status documents, include detailed sprint data
+      if (docType === 'sprint-status') {
+        const jiraClient = this.getJiraClient();
+        if (jiraClient.enabled) {
+          const sprintData = await jiraClient.generateSprintStatusReport(
+            data.jiraIssues,
+            data.prs && data.prs.length > 0
+              ? this.prClient.generatePRTestingReport(data.prs)
+              : null
+          );
+
+          prompt += `**Sprint Information:**\n`;
+          prompt += `- Sprint: ${sprintData.sprintName}\n`;
+          prompt += `- Status: ${sprintData.sprintStatus}\n`;
+          prompt += `- Duration: ${sprintData.sprintStartDate} to ${sprintData.sprintEndDate}\n`;
+          prompt += `- Goal: ${sprintData.sprintGoal}\n`;
+          prompt += `- Progress: ${sprintData.sprintProgress}%\n`;
+          prompt += `- Days Remaining: ${sprintData.daysRemaining}\n`;
+          prompt += `- Total Issues: ${sprintData.totalJiraIssues}\n\n`;
+
+          prompt += `**Issue Status Breakdown:**\n`;
+          Object.entries(sprintData.issuesByStatus).forEach(([status, issues]) => {
+            prompt += `- ${status}: ${issues.length} issues\n`;
+          });
+          prompt += `\n`;
+        }
+      }
     }
 
     prompt += `Use this template structure:\n${template}\n\n`;
-    prompt += `Replace all {placeholders} with actual values. Use today's date: ${
+    prompt += `Replace all {placeholders} with actual values from the data above. Use today's date: ${
       new Date().toISOString().split('T')[0]
-    }`;
+    }. Do not fabricate any data - only use the real data provided above.`;
 
     return prompt;
   }
@@ -205,7 +234,7 @@ class AIDocumentGenerator {
 
           // Try AI generation first
           try {
-            const prompt = this.createAIPrompt(docType, data, template);
+            const prompt = await this.createAIPrompt(docType, data, template);
             content = await this.generateCompletion(prompt);
           } catch (error) {
             core.warning(
@@ -216,7 +245,7 @@ class AIDocumentGenerator {
 
           // Fallback to template if AI failed
           if (!content) {
-            content = this.fillTemplate(template, data);
+            content = await this.fillTemplate(template, data);
           }
 
           const result = await this.saveDocument(docType, data, content);
@@ -241,7 +270,7 @@ class AIDocumentGenerator {
   }
 
   // Simple template filling for fallback
-  fillTemplate(template, data) {
+  async fillTemplate(template, data) {
     const currentDate = new Date().toISOString().split('T')[0];
     let content = template;
 
@@ -326,7 +355,7 @@ class AIDocumentGenerator {
     if (data.jiraIssues && data.jiraIssues.length > 0) {
       const jiraClient = this.getJiraClient();
       if (jiraClient.enabled) {
-        const sprintData = jiraClient.generateSprintStatusReport(
+        const sprintData = await jiraClient.generateSprintStatusReport(
           data.jiraIssues,
           data.prs && data.prs.length > 0
             ? this.prClient.generatePRTestingReport(data.prs)
