@@ -87,7 +87,16 @@ jobs:
               if (context.payload.inputs?.pr_numbers) sources.push('pr');
               if (context.payload.inputs?.jira_keys) sources.push('jira');
               if (context.payload.inputs?.issue_numbers) sources.push('issues');
+              
+              // Debug logging
+              core.info(`🔍 Debug: discussionNumber=${discussionNumber}`);
+              core.info(`🔍 Debug: pr_numbers=${context.payload.inputs?.pr_numbers}`);
+              core.info(`🔍 Debug: jira_keys=${context.payload.inputs?.jira_keys}`);
+              core.info(`🔍 Debug: issue_numbers=${context.payload.inputs?.issue_numbers}`);
+              core.info(`🔍 Debug: detected sources=[${sources.join(', ')}]`);
+              
               sourceModules = sources.length > 0 ? sources.join(',') : 'discussion';
+              core.info(`🔍 Debug: final sourceModules=${sourceModules}`);
             }
 
             // Only require discussion number if 'discussion' is in the source modules
