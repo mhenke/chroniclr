@@ -88,23 +88,76 @@ class JiraClient {
           `✅ Fetched Jira issue: ${jiraKey} - "${issue.fields.summary}"`
         );
       } catch (error) {
-        if (error.response?.status === 404) {
+        const baseUrl = this.baseUrl || 'JIRA_BASE_URL_NOT_SET';
+        const project = this.project || 'JIRA_PROJECT_NOT_SET';
+        
+        if (error.message.includes('404')) {
           core.error(
-            `❌ Jira issue ${jiraKey} not found. Please verify the key exists and is accessible.`
+            `❌ Jira issue ${jiraKey} not found. Possible causes:
+            • Issue key doesn't exist in ${project} project
+            • Issue may have been deleted or moved
+            • Check URL: ${baseUrl}/browse/${jiraKey}
+            • Verify project key in JIRA_PROJECT secret: ${project}
+            • Create test data using: node scripts/create-test-jira-data.js`
           );
-        } else if (
-          error.response?.status === 401 ||
-          error.response?.status === 403
-        ) {
+        } else if (error.message.includes('401')) {
           core.error(
-            `❌ Access denied to Jira issue ${jiraKey}. Check authentication credentials and permissions.`
+            `❌ Authentication failed for Jira issue ${jiraKey}:
+            • Check JIRA_API_TOKEN secret is valid and not expired
+            • Verify JIRA_USER_EMAIL matches token owner
+            • API tokens can be managed at: ${baseUrl}/secure/ViewProfile.jspa?selectedTab=com.atlassian.pats.pats-plugin:jira-user-personal-access-tokens`
+          );
+        } else if (error.message.includes('403')) {
+          core.error(
+            `❌ Access denied to Jira issue ${jiraKey}:
+            • User ${this.userEmail || 'EMAIL_NOT_SET'} lacks permission to view issue
+            • Issue may be restricted to specific users/groups
+            • Verify you can access: ${baseUrl}/browse/${jiraKey}
+            • Check project permissions in ${project}`
+          );
+        } else if (error.message.includes('ENOTFOUND') || error.message.includes('ECONNREFUSED')) {
+          core.error(
+            `❌ Cannot connect to Jira server for ${jiraKey}:
+            • Check JIRA_BASE_URL: ${baseUrl}
+            • Verify Jira instance is accessible
+            • Network connectivity issues
+            • URL should be format: https://yourcompany.atlassian.net`
           );
         } else {
           core.error(
-            `❌ Failed to fetch Jira issue ${jiraKey}: ${error.message}`
+            `❌ Failed to fetch Jira issue ${jiraKey}:
+            • Error: ${error.message}
+            • URL: ${baseUrl}/rest/api/3/issue/${jiraKey}
+            • Project: ${project}
+            • User: ${this.userEmail || 'EMAIL_NOT_SET'}
+            • Double-check all JIRA_* secrets are configured correctly`
           );
         }
         // Continue processing other Jira issues instead of failing completely
+      }
+    }
+
+    // Log configuration summary for debugging
+    if (jiraKeys && jiraKeys.length > 0) {
+      const successCount = issues.length;
+      const failureCount = jiraKeys.length - successCount;
+      
+      if (failureCount > 0) {
+        core.warning(`
+📋 Jira Integration Summary:
+• Successfully fetched: ${successCount}/${jiraKeys.length} issues
+• Failed: ${failureCount} issues
+• Jira Instance: ${this.baseUrl || 'NOT_SET'}
+• Project: ${this.project || 'NOT_SET'}
+• User: ${this.userEmail || 'NOT_SET'}
+
+🔧 Troubleshooting:
+${failureCount === jiraKeys.length ? '• No issues found - create test data with: node scripts/create-test-jira-data.js' : '• Some issues missing - verify issue keys exist in Jira'}
+• Check secrets configuration in GitHub repository settings
+• Test Jira connectivity manually: ${this.baseUrl}/browse/${jiraKeys[0]}
+        `);
+      } else {
+        core.info(`✅ Successfully fetched all ${successCount} Jira issues from ${this.project}`);
       }
     }
 
