@@ -85,6 +85,7 @@ class AIDocumentGenerator {
     const collectedData = {
       discussion: null,
       prs: [],
+      issues: [],
       jiraIssues: [],
       sources: sourceModules,
     };
