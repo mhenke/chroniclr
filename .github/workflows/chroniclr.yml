@@ -5,7 +5,6 @@ run-name: >
     github.event.discussion.title ||
     github.event.inputs.discussion_number && 'Discussion Documentation' ||
     github.event.inputs.pr_numbers && 'PR Documentation' ||
-    github.event.inputs.issue_numbers && 'Issues Documentation' ||
     github.event.inputs.jira_keys && 'Jira Documentation' ||
     'Generated Documentation'
   }}${{
@@ -13,8 +12,6 @@ run-name: >
     github.event.inputs.discussion_number && format(' (#{0})', github.event.inputs.discussion_number) || ''
   }}${{
     github.event.inputs.pr_numbers && format(' • PR#{0}', github.event.inputs.pr_numbers) || ''
-  }}${{
-    github.event.inputs.issue_numbers && format(' • I#{0}', github.event.inputs.issue_numbers) || ''
   }}${{
     github.event.inputs.jira_keys && format(' • {0}', github.event.inputs.jira_keys) || ''
   }}
@@ -260,7 +257,6 @@ jobs:
           SOURCE_MODULES: ${{ github.event.inputs.source || 'discussion' }}
           PR_NUMBERS: ${{ github.event.inputs.pr_numbers }}
           JIRA_KEYS: ${{ github.event.inputs.jira_keys }}
-          ISSUE_NUMBERS: ${{ github.event.inputs.issue_numbers }}
           DISCUSSION_NUMBER: ${{ steps.discussion.outputs.number }}
           DISCUSSION_TITLE: ${{ steps.discussion.outputs.title }}
           DISCUSSION_BODY: ${{ steps.discussion.outputs.body }}
@@ -312,7 +308,6 @@ jobs:
                                    context.payload.discussion?.number || '';
             const sources = context.payload.inputs?.source || 'discussion';
             const prNumbers = context.payload.inputs?.pr_numbers || '';
-            const issueNumbers = context.payload.inputs?.issue_numbers || '';
             const jiraKeys = context.payload.inputs?.jira_keys || '';
 
             // Create a hash-like identifier from the inputs to ensure branch name uniqueness
@@ -320,7 +315,6 @@ jobs:
             if (discussionNumber) branchSuffix += `d${discussionNumber}`;
             if (sources !== 'discussion') branchSuffix += `-src${sources.replace(/,/g, '_')}`;
             if (prNumbers) branchSuffix += `-pr${prNumbers.replace(/,/g, '_')}`;
-            if (issueNumbers) branchSuffix += `-iss${issueNumbers.replace(/,/g, '_')}`;
             if (jiraKeys) branchSuffix += `-jira${jiraKeys.replace(/,/g, '_')}`;
 
             // Fallback for manual runs without specific parameters
@@ -338,7 +332,20 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: '📚 Generate documentation via Chroniclr [skip ci]'
-          title: '📚 Chroniclr Documentation Update'
+          title: >
+            📚 ${{
+              steps.discussion.outputs.title ||
+              (github.event.inputs.pr_numbers && 'PR Documentation') ||
+              (github.event.inputs.jira_keys && 'Jira Documentation') ||
+              'Generated Documentation'
+            }}${{
+              steps.discussion.outputs.number && format(' (#{0})', steps.discussion.outputs.number) ||
+              github.event.inputs.discussion_number && format(' (#{0})', github.event.inputs.discussion_number) || ''
+            }}${{
+              github.event.inputs.pr_numbers && format(' • PR#{0}', github.event.inputs.pr_numbers) || ''
+            }}${{
+              github.event.inputs.jira_keys && format(' • {0}', github.event.inputs.jira_keys) || ''
+            }}
           body: |
             ## Automated Documentation Update
 
