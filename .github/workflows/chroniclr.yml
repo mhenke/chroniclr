@@ -2,6 +2,12 @@ name: Chroniclr Documentation Generator
 
 run-name: >
   📚 ${{
+    github.event.inputs.manual_doc_type == 'release' && 'Release Documentation' ||
+    github.event.inputs.manual_doc_type == 'sprint-status' && 'Sprint Status Report' ||
+    github.event.inputs.manual_doc_type == 'pr-report' && 'PR Testing Report' ||
+    github.event.inputs.manual_doc_type == 'meeting-notes' && 'Meeting Notes' ||
+    github.event.inputs.manual_doc_type == 'initiative-brief' && 'Initiative Brief' ||
+    github.event.inputs.manual_doc_type == 'changelog' && 'Changelog' ||
     github.event.discussion.title ||
     github.event.inputs.discussion_number && 'Discussion Documentation' ||
     github.event.inputs.pr_numbers && 'PR Documentation' ||
@@ -352,6 +358,12 @@ jobs:
           commit-message: '📚 Generate documentation via Chroniclr [skip ci]'
           title: >
             📚 ${{
+              steps.doc-types.outputs.document_types == 'release' && 'Release Documentation' ||
+              steps.doc-types.outputs.document_types == 'sprint-status' && 'Sprint Status Report' ||
+              steps.doc-types.outputs.document_types == 'pr-report' && 'PR Testing Report' ||
+              steps.doc-types.outputs.document_types == 'meeting-notes' && 'Meeting Notes' ||
+              steps.doc-types.outputs.document_types == 'initiative-brief' && 'Initiative Brief' ||
+              steps.doc-types.outputs.document_types == 'changelog' && 'Changelog' ||
               steps.discussion.outputs.title ||
               (github.event.inputs.pr_numbers && 'PR Documentation') ||
               (github.event.inputs.jira_keys && 'Jira Documentation') ||
