@@ -241,6 +241,211 @@ class JiraClient {
       })),
     };
   }
+
+  /**
+   * Generate detailed sprint status report data
+   */
+  generateSprintStatusReport(issues, prData = null) {
+    const summary = this.generateJiraSummary(issues);
+    const sprintData = summary.sprint || {};
+
+    // Calculate sprint progress
+    const sprintProgress = this.calculateSprintProgress(summary.issuesByStatus);
+    const daysRemaining = this.calculateDaysRemaining(sprintData.endDate);
+    
+    // Create status table
+    const ticketStatusTable = this.createStatusTable(summary.issuesByStatus, summary.totalIssues);
+    
+    // Group issues by status for detailed breakdown
+    const jiraIssuesByStatus = this.formatIssuesByStatus(summary.issuesByStatus);
+    const jiraIssuesByPriority = this.formatIssuesByPriority(issues);
+    const jiraIssueDetails = this.formatIssueDetails(issues);
+
+    return {
+      ...summary,
+      sprintName: sprintData.name || 'Current Sprint',
+      sprintStatus: sprintData.state || 'Active',
+      sprintStartDate: sprintData.startDate || 'TBD',
+      sprintEndDate: sprintData.endDate || 'TBD',
+      sprintGoal: sprintData.goal || 'Sprint goal not set',
+      sprintProgress: sprintProgress,
+      daysRemaining: daysRemaining,
+      ticketStatusTable: ticketStatusTable,
+      totalJiraIssues: summary.totalIssues,
+      jiraIssuesByStatus: jiraIssuesByStatus,
+      jiraIssuesByPriority: jiraIssuesByPriority,
+      jiraIssueDetails: jiraIssueDetails,
+      sprintActionItems: this.generateSprintActionItems(summary.issuesByStatus, prData),
+      sprintRisks: this.generateSprintRisks(summary.issuesByStatus, daysRemaining),
+      jiraBoardUrl: sprintData.boardUrl || `${this.baseUrl}/browse/${this.project}`,
+      jiraDetails: issues.map(issue => `- [${issue.key}: ${issue.summary}](${issue.url})`).join('\n')
+    };
+  }
+
+  /**
+   * Calculate sprint progress percentage
+   */
+  calculateSprintProgress(issuesByStatus) {
+    const doneIssues = (issuesByStatus['Done'] || []).length + (issuesByStatus['Closed'] || []).length;
+    const totalIssues = Object.values(issuesByStatus).reduce((sum, issues) => sum + issues.length, 0);
+    
+    if (totalIssues === 0) return 0;
+    return Math.round((doneIssues / totalIssues) * 100);
+  }
+
+  /**
+   * Calculate days remaining in sprint
+   */
+  calculateDaysRemaining(endDate) {
+    if (!endDate) return 'Unknown';
+    
+    const end = new Date(endDate);
+    const now = new Date();
+    const diffTime = end - now;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays < 0) return 'Sprint ended';
+    if (diffDays === 0) return 'Last day';
+    return `${diffDays} days`;
+  }
+
+  /**
+   * Create ticket status table
+   */
+  createStatusTable(issuesByStatus, totalIssues) {
+    if (totalIssues === 0) return 'No issues found';
+
+    const statusRows = [];
+    Object.entries(issuesByStatus).forEach(([status, issues]) => {
+      const count = issues.length;
+      const percentage = Math.round((count / totalIssues) * 100);
+      statusRows.push(`| ${status} | ${count} | ${percentage}% |`);
+    });
+
+    return statusRows.join('\n');
+  }
+
+  /**
+   * Format issues by status for detailed breakdown
+   */
+  formatIssuesByStatus(issuesByStatus) {
+    const sections = [];
+    Object.entries(issuesByStatus).forEach(([status, issues]) => {
+      sections.push(`**${status}** (${issues.length})`);
+      issues.forEach(issue => {
+        sections.push(`- [${issue.key}](${issue.url}): ${issue.summary}`);
+      });
+      sections.push('');
+    });
+    return sections.join('\n');
+  }
+
+  /**
+   * Format issues by priority (mock - would need priority data from API)
+   */
+  formatIssuesByPriority(issues) {
+    const priorityGroups = {
+      'High': [],
+      'Medium': [],
+      'Low': [],
+      'Unknown': []
+    };
+
+    issues.forEach(issue => {
+      const priority = issue.priority || 'Unknown';
+      if (priorityGroups[priority]) {
+        priorityGroups[priority].push(issue);
+      } else {
+        priorityGroups['Unknown'].push(issue);
+      }
+    });
+
+    const sections = [];
+    Object.entries(priorityGroups).forEach(([priority, priorityIssues]) => {
+      if (priorityIssues.length > 0) {
+        sections.push(`**${priority}** (${priorityIssues.length})`);
+        priorityIssues.forEach(issue => {
+          sections.push(`- [${issue.key}](${issue.url}): ${issue.summary}`);
+        });
+        sections.push('');
+      }
+    });
+
+    return sections.join('\n') || 'No priority information available.';
+  }
+
+  /**
+   * Format detailed issue information
+   */
+  formatIssueDetails(issues) {
+    return issues.map(issue => {
+      return `### ${issue.key}: ${issue.summary}
+- **Status:** ${issue.status}
+- **Type:** ${issue.issueType}
+- **Assignee:** ${issue.assignee}
+- **URL:** ${issue.url}`;
+    }).join('\n\n');
+  }
+
+  /**
+   * Generate sprint action items based on current state
+   */
+  generateSprintActionItems(issuesByStatus, prData) {
+    const actionItems = [];
+
+    // Check for blocked or in-progress items
+    const inProgress = (issuesByStatus['In Progress'] || []).length;
+    const todo = (issuesByStatus['To Do'] || []).length;
+    const done = (issuesByStatus['Done'] || []).length;
+
+    if (todo > inProgress) {
+      actionItems.push('🚀 **Start more work** - More tickets in To Do than In Progress');
+    }
+
+    if (inProgress > 5) {
+      actionItems.push('⚠️ **Focus on completion** - High number of items in progress');
+    }
+
+    if (prData && prData.openPRs > 0) {
+      actionItems.push(`📋 **Review PRs** - ${prData.openPRs} PRs awaiting review/merge`);
+    }
+
+    if (actionItems.length === 0) {
+      actionItems.push('✅ **Sprint on track** - No critical action items identified');
+    }
+
+    return actionItems.join('\n\n');
+  }
+
+  /**
+   * Generate sprint risks based on current state
+   */
+  generateSprintRisks(issuesByStatus, daysRemaining) {
+    const risks = [];
+
+    const todo = (issuesByStatus['To Do'] || []).length;
+    const inProgress = (issuesByStatus['In Progress'] || []).length;
+    const totalRemaining = todo + inProgress;
+
+    if (daysRemaining !== 'Unknown' && daysRemaining !== 'Sprint ended') {
+      const daysNum = parseInt(daysRemaining);
+      if (daysNum <= 2 && totalRemaining > 3) {
+        risks.push('🔴 **Sprint at risk** - High number of incomplete items with limited time');
+      } else if (daysNum <= 5 && totalRemaining > 10) {
+        risks.push('🟡 **Sprint capacity concern** - May need to reduce scope');
+      }
+    }
+
+    if (inProgress === 0 && todo > 0) {
+      risks.push('⚠️ **No active work** - All tickets in To Do status');
+    }
+
+    if (risks.length === 0) {
+      risks.push('🟢 **No major risks identified** - Sprint appears on track');
+    }
+
+    return risks.join('\n\n');
+  }
 }
 
 module.exports = { JiraClient };

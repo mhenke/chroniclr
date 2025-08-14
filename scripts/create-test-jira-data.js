@@ -189,6 +189,7 @@ class JiraTestDataCreator {
           'PR #124 adds token refresh functionality. Both PRs tested together.',
           'Security review complete. Ready for merge.',
         ],
+        targetStatus: 'Done', // Will try to move to Done status
       },
 
       // A2: Bug with single comment and cross-platform links
@@ -203,6 +204,7 @@ class JiraTestDataCreator {
         comments: [
           'Reproduced the issue. Root cause identified in data processing loop. See GitHub issue #45 for detailed analysis and PR #125 for the fix.',
         ],
+        targetStatus: 'In Progress', // Will try to move to In Progress
       },
 
       // B1: Task with multiple PR links only
@@ -216,6 +218,7 @@ class JiraTestDataCreator {
         prLinks: [this.samplePRs[0], this.samplePRs[3]],
         issueLinks: [],
         comments: [],
+        targetStatus: 'In Review', // Will try to move to review status
       },
 
       // B2: Story with single PR link only
@@ -228,6 +231,7 @@ class JiraTestDataCreator {
         prLinks: [this.samplePRs[1]],
         issueLinks: [],
         comments: [],
+        targetStatus: 'To Do', // Keep in To Do
       },
 
       // C1: Bug with multiple comments only
@@ -245,6 +249,7 @@ class JiraTestDataCreator {
           'Considering database indexing strategies vs query optimization.',
           'Team decision: Implement both indexing AND query optimization for maximum impact.',
         ],
+        targetStatus: 'In Progress', // Active discussion = In Progress
       },
 
       // C2: Task with single comment and GitHub issue
@@ -259,6 +264,7 @@ class JiraTestDataCreator {
         comments: [
           'Migration strategy discussed in GitHub issue #46. Will use blue-green deployment approach.',
         ],
+        targetStatus: 'Done', // Decision made, work complete
       },
 
       // D1: Baseline story with minimal data
@@ -271,6 +277,7 @@ class JiraTestDataCreator {
         prLinks: [],
         issueLinks: [],
         comments: [],
+        targetStatus: 'To Do', // Just created, not started
       },
 
       // D2: Bug with mixed content and error conditions
@@ -287,6 +294,7 @@ class JiraTestDataCreator {
           'Invalid PR link above should be handled gracefully by Chroniclr.',
           'Real fix will come in a separate PR once investigation is complete.',
         ],
+        targetStatus: 'In Progress', // Under investigation
       },
     ];
 
@@ -331,6 +339,12 @@ class JiraTestDataCreator {
           console.log(`   💬 Comments: ${scenario.comments.length}`);
         }
 
+        // Transition to target status if specified
+        if (scenario.targetStatus && scenario.targetStatus !== 'To Do') {
+          await this.sleep(500); // Give time for issue to be fully created
+          await this.transitionIssue(created.key, null, scenario.targetStatus);
+        }
+
         createdIssues.push({
           scenario: scenario.id,
           key: created.key,
@@ -340,6 +354,7 @@ class JiraTestDataCreator {
           prLinks: scenario.prLinks.length,
           issueLinks: scenario.issueLinks.length,
           comments: scenario.comments.length,
+          status: scenario.targetStatus || 'To Do',
         });
 
         console.log(); // Blank line for readability
@@ -352,6 +367,83 @@ class JiraTestDataCreator {
     }
 
     return createdIssues;
+  }
+
+  async getProjectWorkflow() {
+    try {
+      // Get project details including workflow scheme
+      const project = await this.makeRequest('GET', `/project/${this.project}`);
+
+      // Get available statuses for the project
+      const statuses = await this.makeRequest(
+        'GET',
+        `/project/${this.project}/statuses`
+      );
+
+      console.log('📋 Available workflow statuses:');
+      const availableStatuses = [];
+
+      if (statuses && statuses[0] && statuses[0].statuses) {
+        statuses[0].statuses.forEach((status) => {
+          console.log(
+            `   • ${status.name} (${status.id}) - ${status.statusCategory.name}`
+          );
+          availableStatuses.push({
+            id: status.id,
+            name: status.name,
+            category: status.statusCategory.name,
+          });
+        });
+      }
+
+      console.log();
+      return availableStatuses;
+    } catch (error) {
+      console.error(`❌ Failed to get workflow info: ${error.message}`);
+      return [];
+    }
+  }
+
+  async transitionIssue(issueKey, transitionId, transitionName) {
+    try {
+      // Get available transitions for this issue
+      const transitions = await this.makeRequest(
+        'GET',
+        `/issue/${issueKey}/transitions`
+      );
+
+      // Find the transition we want
+      const targetTransition = transitions.transitions.find(
+        (t) =>
+          t.id === transitionId ||
+          t.name.toLowerCase().includes(transitionName.toLowerCase())
+      );
+
+      if (!targetTransition) {
+        console.log(
+          `   ⚠️  Transition "${transitionName}" not available for ${issueKey}`
+        );
+        return false;
+      }
+
+      // Perform the transition
+      const transitionData = {
+        transition: {
+          id: targetTransition.id,
+        },
+      };
+
+      await this.makeRequest(
+        'POST',
+        `/issue/${issueKey}/transitions`,
+        transitionData
+      );
+      console.log(`   🔄 Moved ${issueKey} to "${targetTransition.name}"`);
+      return true;
+    } catch (error) {
+      console.error(`   ❌ Failed to transition ${issueKey}: ${error.message}`);
+      return false;
+    }
   }
 
   async getProjectInfo() {
@@ -393,10 +485,13 @@ class JiraTestDataCreator {
       // Get project info
       await this.getProjectInfo();
 
+      // Get workflow information
+      await this.getProjectWorkflow();
+
       // List existing issues
       const existingIssues = await this.listExistingIssues();
 
-      // Create comprehensive test matrix
+      // Create comprehensive test matrix with workflow states
       const newIssues = await this.createTestMatrix();
 
       console.log('🎉 Test matrix creation complete!\n');
@@ -430,9 +525,36 @@ class JiraTestDataCreator {
 
     console.log('🎯 Scenario Breakdown:');
     issues.forEach((issue) => {
+      const statusEmoji =
+        {
+          'To Do': '📋',
+          'In Progress': '🚧',
+          'In Review': '👀',
+          Done: '✅',
+        }[issue.status] || '❓';
+
       console.log(
-        `   [${issue.scenario}] ${issue.key} - PRs:${issue.prLinks} Issues:${issue.issueLinks} Comments:${issue.comments}`
+        `   [${issue.scenario}] ${issue.key} ${statusEmoji} ${issue.status} - PRs:${issue.prLinks} Issues:${issue.issueLinks} Comments:${issue.comments}`
       );
+    });
+    console.log();
+
+    // Status distribution
+    const statusCounts = {};
+    issues.forEach((issue) => {
+      statusCounts[issue.status] = (statusCounts[issue.status] || 0) + 1;
+    });
+
+    console.log('📈 Workflow Status Distribution:');
+    Object.entries(statusCounts).forEach(([status, count]) => {
+      const emoji =
+        {
+          'To Do': '📋',
+          'In Progress': '🚧',
+          'In Review': '👀',
+          Done: '✅',
+        }[status] || '❓';
+      console.log(`   ${emoji} ${status}: ${count} issues`);
     });
     console.log();
   }

@@ -10,7 +10,13 @@
       "initiative": ["initiative-brief"],
       "release": ["changelog"],
       "feature": ["initiative-brief", "summary"],
-      "planning": ["meeting-notes", "summary"]
+      "planning": ["meeting-notes", "summary"],
+      "testing": ["pr-report"],
+      "qa": ["pr-report"],
+      "review": ["pr-report"],
+      "sprint": ["sprint-status"],
+      "standup": ["sprint-status"],
+      "retrospective": ["sprint-status"]
     }
   },
   "documents": {
@@ -19,7 +25,9 @@
       "summary": "src/templates/summary.md",
       "initiative-brief": "src/templates/initiative-brief.md",
       "changelog": "src/templates/changelog.md",
-      "meeting-notes": "src/templates/meeting-notes.md"
+      "meeting-notes": "src/templates/meeting-notes.md",
+      "pr-report": "src/templates/pr-report.md",
+      "sprint-status": "src/templates/sprint-status.md"
     }
   }
 }

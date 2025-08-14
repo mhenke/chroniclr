@@ -243,8 +243,10 @@ class AIDocumentGenerator {
   // Simple template filling for fallback
   fillTemplate(template, data) {
     const currentDate = new Date().toISOString().split('T')[0];
+    let content = template;
 
-    return template
+    // Basic replacements
+    content = content
       .replace(
         /\{title\}/g,
         data.discussion?.title || 'Generated Documentation'
@@ -254,10 +256,107 @@ class AIDocumentGenerator {
         /\{time\}/g,
         new Date().toLocaleTimeString('en-US', { timeZone: 'UTC' })
       )
+      .replace(/\{lastUpdated\}/g, currentDate)
       .replace(/\{status\}/g, 'Active')
       .replace(/\{discussionNumber\}/g, data.discussion?.number || '')
-      .replace(/\{discussionUrl\}/g, data.discussion?.url || '')
+      .replace(/\{discussionUrl\}/g, data.discussion?.url || '');
+
+    // PR-specific template filling (for pr-report template)
+    if (data.prs && data.prs.length > 0) {
+      const prTestingData = this.prClient.generatePRTestingReport(data.prs);
+
+      content = content
+        .replace(/\{totalPRs\}/g, prTestingData.totalPRs || 0)
+        .replace(/\{mergedPRs\}/g, prTestingData.mergedPRs || 0)
+        .replace(/\{openPRs\}/g, prTestingData.openPRs || 0)
+        .replace(
+          /\{authors\}/g,
+          prTestingData.authors ? prTestingData.authors.join(', ') : 'None'
+        )
+        .replace(/\{filesChanged\}/g, prTestingData.filesChanged || 0)
+        .replace(/\{linesAdded\}/g, prTestingData.linesAdded || 0)
+        .replace(/\{linesDeleted\}/g, prTestingData.linesDeleted || 0)
+        .replace(/\{netChange\}/g, prTestingData.netChange || 0)
+        .replace(/\{testCoverage\}/g, prTestingData.testCoverage || 0)
+        .replace(/\{reviewCoverage\}/g, prTestingData.reviewCoverage || 0)
+        .replace(/\{testFilesCount\}/g, prTestingData.testFilesCount || 0)
+        .replace(/\{avgFilesPerPR\}/g, prTestingData.avgFilesPerPR || 0)
+        .replace(/\{codeChurn\}/g, prTestingData.codeChurn || 0)
+        .replace(
+          /\{testingNotes\}/g,
+          prTestingData.testingNotes || 'No testing information available.'
+        )
+        .replace(
+          /\{prDetails\}/g,
+          prTestingData.prDetails
+            ? prTestingData.prDetails.join('\n\n')
+            : 'No PR details available.'
+        )
+        .replace(/\{prLinks\}/g, prTestingData.prLinks || 'No PRs referenced.')
+        .replace(
+          /\{deploymentStatus\}/g,
+          prTestingData.deploymentStatus || 'Unknown'
+        )
+        .replace(
+          /\{recommendations\}/g,
+          prTestingData.recommendations || 'No specific recommendations.'
+        )
+        .replace(
+          /\{jiraKeys\}/g,
+          prTestingData.jiraKeys ? prTestingData.jiraKeys.join(', ') : 'None'
+        );
+    }
+
+    // Jira-specific replacements
+    if (data.jiraIssues && data.jiraIssues.length > 0) {
+      const jiraLinks = data.jiraIssues
+        .map((issue) => `- [${issue.key}: ${issue.summary}](${issue.url})`)
+        .join('\n');
+
+      content = content.replace(/\{jiraDetails\}/g, jiraLinks);
+
+      // Add Jira footer
+      const jiraFooter = `**Jira Issues:** ${data.jiraIssues
+        .map((issue) => issue.key)
+        .join(', ')}`;
+      content = content.replace(/\{jiraFooter\}/g, jiraFooter);
+    }
+
+    // Sprint status specific replacements (for sprint-status template)
+    if (data.jiraIssues && data.jiraIssues.length > 0) {
+      const jiraClient = this.getJiraClient();
+      if (jiraClient.enabled) {
+        const sprintData = jiraClient.generateSprintStatusReport(
+          data.jiraIssues, 
+          data.prs && data.prs.length > 0 ? this.prClient.generatePRTestingReport(data.prs) : null
+        );
+        
+        content = content
+          .replace(/\{sprintName\}/g, sprintData.sprintName || 'Current Sprint')
+          .replace(/\{sprintStatus\}/g, sprintData.sprintStatus || 'Active')
+          .replace(/\{sprintStartDate\}/g, sprintData.sprintStartDate || 'TBD')
+          .replace(/\{sprintEndDate\}/g, sprintData.sprintEndDate || 'TBD')
+          .replace(/\{sprintGoal\}/g, sprintData.sprintGoal || 'No goal set')
+          .replace(/\{sprintProgress\}/g, sprintData.sprintProgress || 0)
+          .replace(/\{daysRemaining\}/g, sprintData.daysRemaining || 'Unknown')
+          .replace(/\{ticketStatusTable\}/g, sprintData.ticketStatusTable || 'No data')
+          .replace(/\{totalJiraIssues\}/g, sprintData.totalJiraIssues || 0)
+          .replace(/\{jiraIssuesByStatus\}/g, sprintData.jiraIssuesByStatus || 'No issues')
+          .replace(/\{jiraIssuesByPriority\}/g, sprintData.jiraIssuesByPriority || 'No priority data')
+          .replace(/\{jiraIssueDetails\}/g, sprintData.jiraIssueDetails || 'No issue details')
+          .replace(/\{sprintActionItems\}/g, sprintData.sprintActionItems || 'No action items')
+          .replace(/\{sprintRisks\}/g, sprintData.sprintRisks || 'No risks identified')
+          .replace(/\{jiraBoardUrl\}/g, sprintData.jiraBoardUrl || '#');
+      }
+    }
+
+    // Replace any remaining placeholders with default values
+    content = content
+      .replace(/\{jiraDetails\}/g, 'No Jira issues linked.')
+      .replace(/\{jiraFooter\}/g, '')
       .replace(/\{[^}]+\}/g, 'TBD'); // Replace any remaining placeholders
+
+    return content;
   }
 
   extractTopicFromTitle(title) {
