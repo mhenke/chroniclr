@@ -61,6 +61,8 @@
 
 {jiraIssueDetails}
 
+> 🎯 **Note:** Issues marked with 🎯 were specifically requested for this report.
+
 ## Action Items
 
 {sprintActionItems}

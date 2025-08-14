@@ -185,6 +185,18 @@ class AIDocumentGenerator {
     }
 
     prompt += `Use this template structure:\n${template}\n\n`;
+    
+    if (docType === 'release') {
+      prompt += `For release documentation:
+- Generate a realistic release date (within 1-2 weeks from today)
+- Create bullet points for "What is included" based on the Jira issues and PRs
+- Write a compelling "Why this matters" statement based on the changes
+- Describe the "Impact" considering the scope of changes
+- Provide practical "Next steps" for post-release activities
+- Use a professional but accessible tone
+`;
+    }
+    
     prompt += `Replace all {placeholders} with actual values from the data above. Use today's date: ${
       new Date().toISOString().split('T')[0]
     }. Do not fabricate any data - only use the real data provided above.`;
@@ -396,7 +408,45 @@ class AIDocumentGenerator {
             sprintData.sprintRisks || 'No risks identified'
           )
           .replace(/\{jiraBoardUrl\}/g, sprintData.jiraBoardUrl || '#');
+
+        // Show highlighting note only if we're using complete sprint data and have requested issues
+        if (!sprintData.usingCompleteSprintData || sprintData.requestedIssues.length === 0) {
+          content = content.replace(/> 🎯 \*\*Note:\*\* Issues marked with 🎯 were specifically requested for this report\.\n\n/g, '');
+        }
       }
+    }
+
+    // Release-specific replacements
+    if (docType === 'release') {
+      const currentDate = new Date().toISOString().split('T')[0];
+      const futureDate = new Date();
+      futureDate.setDate(futureDate.getDate() + 7); // Default to 1 week from now
+      
+      // Generate release content from available data
+      let releaseContent = 'Release content to be determined';
+      if (data.jiraIssues && data.jiraIssues.length > 0) {
+        releaseContent = data.jiraIssues
+          .map(issue => `- ${issue.summary} (${issue.key})`)
+          .join('\n');
+      } else if (data.prs && data.prs.length > 0) {
+        releaseContent = data.prs
+          .map(pr => `- ${pr.title} (#${pr.number})`)
+          .join('\n');
+      }
+      
+      content = content
+        .replace(/\{projectName\}/g, 'Project')
+        .replace(/\{releaseDate\}/g, futureDate.toISOString().split('T')[0])
+        .replace(/\{releaseTime\}/g, '1:00 PM')
+        .replace(/\{timezone\}/g, 'Central time')
+        .replace(/\{version\}/g, 'TBD')
+        .replace(/\{releaseManager\}/g, 'TBD')
+        .replace(/\{contactPerson\}/g, 'the release team')
+        .replace(/\{rollbackPlan\}/g, 'Standard rollback procedures apply')
+        .replace(/\{releaseContent\}/g, releaseContent)
+        .replace(/\{whyMatters\}/g, 'This release provides important updates and improvements')
+        .replace(/\{impact\}/g, 'Minimal impact expected during deployment window')
+        .replace(/\{nextSteps\}/g, 'Monitor deployment and validate functionality post-release');
     }
 
     // Replace any remaining placeholders with default values

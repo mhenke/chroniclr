@@ -296,12 +296,92 @@ ${failureCount === jiraKeys.length ? '• No issues found - create test data wit
   }
 
   /**
+   * Fetch all issues in a sprint
+   */
+  async getSprintIssues(sprintId, boardId) {
+    if (!this.enabled || !sprintId || !boardId) {
+      return [];
+    }
+
+    try {
+      core.info(`Fetching all issues for sprint ${sprintId}`);
+      
+      const response = await fetch(
+        `${this.baseUrl}/rest/agile/1.0/board/${boardId}/sprint/${sprintId}/issue`,
+        {
+          headers: {
+            Authorization: this.authHeader,
+            Accept: 'application/json',
+          },
+        }
+      );
+
+      if (!response.ok) {
+        core.warning(`Could not fetch sprint issues: ${response.status}`);
+        return [];
+      }
+
+      const data = await response.json();
+      const sprintIssues = [];
+
+      for (const issue of data.issues || []) {
+        sprintIssues.push({
+          key: issue.key,
+          summary: issue.fields.summary,
+          description: issue.fields.description || '',
+          status: issue.fields.status.name,
+          issueType: issue.fields.issuetype.name,
+          priority: issue.fields.priority?.name || 'None',
+          assignee: issue.fields.assignee?.displayName || 'Unassigned',
+          reporter: issue.fields.reporter?.displayName || 'Unknown',
+          created: issue.fields.created,
+          updated: issue.fields.updated,
+          resolved: issue.fields.resolutiondate,
+          project: issue.fields.project.key,
+          url: `${this.baseUrl}/browse/${issue.key}`,
+          labels: issue.fields.labels || [],
+          components: issue.fields.components?.map((comp) => comp.name) || [],
+          fixVersions: issue.fields.fixVersions?.map((ver) => ver.name) || [],
+        });
+      }
+
+      core.info(`✅ Fetched ${sprintIssues.length} issues from sprint ${sprintId}`);
+      return sprintIssues;
+    } catch (error) {
+      core.error(`Failed to fetch sprint issues: ${error.message}`);
+      return [];
+    }
+  }
+
+  /**
    * Generate detailed sprint status report data
    */
   async generateSprintStatusReport(issues, prData = null) {
     // Fetch current sprint data
     const currentSprint = await this.getCurrentSprint();
-    const summary = this.generateJiraSummary(issues, currentSprint);
+    
+    // Track originally requested issue keys for highlighting
+    const requestedIssueKeys = new Set(issues.map(issue => issue.key));
+    
+    // For sprint status reports, fetch ALL issues in the sprint if we have sprint info
+    let allSprintIssues = issues;
+    let usingCompleteSprintData = false;
+    
+    if (currentSprint && currentSprint.id && currentSprint.boardId) {
+      const sprintIssues = await this.getSprintIssues(currentSprint.id, currentSprint.boardId);
+      if (sprintIssues.length > 0) {
+        allSprintIssues = sprintIssues;
+        usingCompleteSprintData = true;
+        core.info(`📊 Using complete sprint data: ${allSprintIssues.length} total issues`);
+        if (requestedIssueKeys.size > 0) {
+          core.info(`🎯 Highlighting ${requestedIssueKeys.size} specifically requested issues: ${Array.from(requestedIssueKeys).join(', ')}`);
+        }
+      } else {
+        core.warning(`⚠️ Could not fetch complete sprint data, using provided issues only (${issues.length} issues)`);
+      }
+    }
+    
+    const summary = this.generateJiraSummary(allSprintIssues, currentSprint);
     const sprintData = summary.sprint || {};
 
     // Calculate sprint progress
@@ -318,8 +398,8 @@ ${failureCount === jiraKeys.length ? '• No issues found - create test data wit
     const jiraIssuesByStatus = this.formatIssuesByStatus(
       summary.issuesByStatus
     );
-    const jiraIssuesByPriority = this.formatIssuesByPriority(issues);
-    const jiraIssueDetails = this.formatIssueDetails(issues);
+    const jiraIssuesByPriority = this.formatIssuesByPriority(allSprintIssues, requestedIssueKeys);
+    const jiraIssueDetails = this.formatIssueDetails(allSprintIssues, requestedIssueKeys);
 
     return {
       ...summary,
@@ -345,9 +425,15 @@ ${failureCount === jiraKeys.length ? '• No issues found - create test data wit
       ),
       jiraBoardUrl:
         sprintData.boardUrl || `${this.baseUrl}/browse/${this.project}`,
-      jiraDetails: issues
-        .map((issue) => `- [${issue.key}: ${issue.summary}](${issue.url})`)
+      jiraDetails: allSprintIssues
+        .map((issue) => {
+          const isRequested = requestedIssueKeys.has(issue.key);
+          const prefix = isRequested && usingCompleteSprintData ? '🎯 ' : '- ';
+          return `${prefix}[${issue.key}: ${issue.summary}](${issue.url})`;
+        })
         .join('\n'),
+      requestedIssues: Array.from(requestedIssueKeys),
+      usingCompleteSprintData: usingCompleteSprintData,
     };
   }
 
@@ -415,9 +501,9 @@ ${failureCount === jiraKeys.length ? '• No issues found - create test data wit
   }
 
   /**
-   * Format issues by priority (mock - would need priority data from API)
+   * Format issues by priority with highlighting for requested issues
    */
-  formatIssuesByPriority(issues) {
+  formatIssuesByPriority(issues, requestedIssueKeys = new Set()) {
     const priorityGroups = {
       High: [],
       Medium: [],
@@ -439,7 +525,9 @@ ${failureCount === jiraKeys.length ? '• No issues found - create test data wit
       if (priorityIssues.length > 0) {
         sections.push(`**${priority}** (${priorityIssues.length})`);
         priorityIssues.forEach((issue) => {
-          sections.push(`- [${issue.key}](${issue.url}): ${issue.summary}`);
+          const isRequested = requestedIssueKeys.has(issue.key);
+          const prefix = isRequested ? '🎯 ' : '- ';
+          sections.push(`${prefix}[${issue.key}](${issue.url}): ${issue.summary}`);
         });
         sections.push('');
       }
@@ -449,12 +537,14 @@ ${failureCount === jiraKeys.length ? '• No issues found - create test data wit
   }
 
   /**
-   * Format detailed issue information
+   * Format detailed issue information with highlighting for requested issues
    */
-  formatIssueDetails(issues) {
+  formatIssueDetails(issues, requestedIssueKeys = new Set()) {
     return issues
       .map((issue) => {
-        return `### ${issue.key}: ${issue.summary}
+        const isRequested = requestedIssueKeys.has(issue.key);
+        const titlePrefix = isRequested ? '🎯 ' : '';
+        return `### ${titlePrefix}${issue.key}: ${issue.summary}
 - **Status:** ${issue.status}
 - **Type:** ${issue.issueType}
 - **Assignee:** ${issue.assignee}

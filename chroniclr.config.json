@@ -8,7 +8,7 @@
     "discussionLabels": {
       "documentation": ["summary", "meeting-notes"],
       "initiative": ["initiative-brief"],
-      "release": ["changelog"],
+      "release": ["release", "changelog"],
       "feature": ["initiative-brief", "summary"],
       "planning": ["meeting-notes", "summary"],
       "testing": ["pr-report"],
@@ -27,7 +27,8 @@
       "changelog": "src/templates/changelog.md",
       "meeting-notes": "src/templates/meeting-notes.md",
       "pr-report": "src/templates/pr-report.md",
-      "sprint-status": "src/templates/sprint-status.md"
+      "sprint-status": "src/templates/sprint-status.md",
+      "release": "src/templates/release.md"
     }
   }
 }
