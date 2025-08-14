@@ -291,7 +291,7 @@ jobs:
           if [ -n "$DOC_TYPE" ]; then
             echo "Using specified document type(s): $DOC_TYPE"
             echo "document_types=$DOC_TYPE" >> $GITHUB_OUTPUT
-          elif [ "${{ steps.discussion.outputs.has_discussion }}" = "true" ]; then
+          elif [ "${{ steps.discussion.outputs.has_discussion || 'false' }}" = "true" ]; then
             echo "Processing labels to determine document types"
             npm run process-labels
           else
