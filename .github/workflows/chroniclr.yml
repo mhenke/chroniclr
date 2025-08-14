@@ -115,6 +115,7 @@ jobs:
               core.setOutput('labels', '[]');
               core.setOutput('author', 'system');
               core.setOutput('url', '');
+              core.setOutput('has_discussion', 'false');
               return;
             }
 
@@ -193,9 +194,10 @@ jobs:
             core.setOutput('labels', JSON.stringify(discussion.labels || []));
             core.setOutput('author', discussion.user.login);
             core.setOutput('url', discussion.html_url);
+            core.setOutput('has_discussion', 'true');
 
       - name: Validate discussion data
-        if: ${{ contains(github.event.inputs.source || 'discussion', 'discussion') }}
+        if: ${{ steps.discussion.outputs.has_discussion == 'true' }}
         env:
           DISCUSSION_NUMBER: ${{ steps.discussion.outputs.number }}
           DISCUSSION_TITLE: ${{ steps.discussion.outputs.title }}
@@ -289,9 +291,12 @@ jobs:
           if [ -n "$DOC_TYPE" ]; then
             echo "Using specified document type(s): $DOC_TYPE"
             echo "document_types=$DOC_TYPE" >> $GITHUB_OUTPUT
-          else
+          elif [ "${{ steps.discussion.outputs.has_discussion }}" = "true" ]; then
             echo "Processing labels to determine document types"
             npm run process-labels
+          else
+            echo "No discussion labels available, using default document types"
+            echo "document_types=summary" >> $GITHUB_OUTPUT
           fi
 
       - name: Generate documentation
