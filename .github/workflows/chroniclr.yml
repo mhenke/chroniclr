@@ -39,6 +39,10 @@ on:
         description: 'Jira issue keys (comma-separated, e.g., "PROJ-123,PROJ-456")'
         required: false
         type: string
+      doc_type:
+        description: 'Document type to generate (e.g., "summary,meeting-notes,sprint-status,pr-report")'
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -249,7 +253,15 @@ jobs:
         id: doc-types
         env:
           DISCUSSION_LABELS: ${{ steps.discussion.outputs.labels }}
-        run: npm run process-labels
+          MANUAL_DOC_TYPE: ${{ github.event.inputs.doc_type }}
+        run: |
+          if [ -n "$MANUAL_DOC_TYPE" ]; then
+            echo "Using manual document type: $MANUAL_DOC_TYPE"
+            echo "document_types=$MANUAL_DOC_TYPE" >> $GITHUB_OUTPUT
+          else
+            echo "Processing labels to determine document types"
+            npm run process-labels
+          fi
 
       - name: Generate documentation
         env:
