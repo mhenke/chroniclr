@@ -327,10 +327,12 @@ class AIDocumentGenerator {
       const jiraClient = this.getJiraClient();
       if (jiraClient.enabled) {
         const sprintData = jiraClient.generateSprintStatusReport(
-          data.jiraIssues, 
-          data.prs && data.prs.length > 0 ? this.prClient.generatePRTestingReport(data.prs) : null
+          data.jiraIssues,
+          data.prs && data.prs.length > 0
+            ? this.prClient.generatePRTestingReport(data.prs)
+            : null
         );
-        
+
         content = content
           .replace(/\{sprintName\}/g, sprintData.sprintName || 'Current Sprint')
           .replace(/\{sprintStatus\}/g, sprintData.sprintStatus || 'Active')
@@ -339,13 +341,31 @@ class AIDocumentGenerator {
           .replace(/\{sprintGoal\}/g, sprintData.sprintGoal || 'No goal set')
           .replace(/\{sprintProgress\}/g, sprintData.sprintProgress || 0)
           .replace(/\{daysRemaining\}/g, sprintData.daysRemaining || 'Unknown')
-          .replace(/\{ticketStatusTable\}/g, sprintData.ticketStatusTable || 'No data')
+          .replace(
+            /\{ticketStatusTable\}/g,
+            sprintData.ticketStatusTable || 'No data'
+          )
           .replace(/\{totalJiraIssues\}/g, sprintData.totalJiraIssues || 0)
-          .replace(/\{jiraIssuesByStatus\}/g, sprintData.jiraIssuesByStatus || 'No issues')
-          .replace(/\{jiraIssuesByPriority\}/g, sprintData.jiraIssuesByPriority || 'No priority data')
-          .replace(/\{jiraIssueDetails\}/g, sprintData.jiraIssueDetails || 'No issue details')
-          .replace(/\{sprintActionItems\}/g, sprintData.sprintActionItems || 'No action items')
-          .replace(/\{sprintRisks\}/g, sprintData.sprintRisks || 'No risks identified')
+          .replace(
+            /\{jiraIssuesByStatus\}/g,
+            sprintData.jiraIssuesByStatus || 'No issues'
+          )
+          .replace(
+            /\{jiraIssuesByPriority\}/g,
+            sprintData.jiraIssuesByPriority || 'No priority data'
+          )
+          .replace(
+            /\{jiraIssueDetails\}/g,
+            sprintData.jiraIssueDetails || 'No issue details'
+          )
+          .replace(
+            /\{sprintActionItems\}/g,
+            sprintData.sprintActionItems || 'No action items'
+          )
+          .replace(
+            /\{sprintRisks\}/g,
+            sprintData.sprintRisks || 'No risks identified'
+          )
           .replace(/\{jiraBoardUrl\}/g, sprintData.jiraBoardUrl || '#');
       }
     }

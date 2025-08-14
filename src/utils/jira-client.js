@@ -252,12 +252,17 @@ class JiraClient {
     // Calculate sprint progress
     const sprintProgress = this.calculateSprintProgress(summary.issuesByStatus);
     const daysRemaining = this.calculateDaysRemaining(sprintData.endDate);
-    
+
     // Create status table
-    const ticketStatusTable = this.createStatusTable(summary.issuesByStatus, summary.totalIssues);
-    
+    const ticketStatusTable = this.createStatusTable(
+      summary.issuesByStatus,
+      summary.totalIssues
+    );
+
     // Group issues by status for detailed breakdown
-    const jiraIssuesByStatus = this.formatIssuesByStatus(summary.issuesByStatus);
+    const jiraIssuesByStatus = this.formatIssuesByStatus(
+      summary.issuesByStatus
+    );
     const jiraIssuesByPriority = this.formatIssuesByPriority(issues);
     const jiraIssueDetails = this.formatIssueDetails(issues);
 
@@ -275,10 +280,19 @@ class JiraClient {
       jiraIssuesByStatus: jiraIssuesByStatus,
       jiraIssuesByPriority: jiraIssuesByPriority,
       jiraIssueDetails: jiraIssueDetails,
-      sprintActionItems: this.generateSprintActionItems(summary.issuesByStatus, prData),
-      sprintRisks: this.generateSprintRisks(summary.issuesByStatus, daysRemaining),
-      jiraBoardUrl: sprintData.boardUrl || `${this.baseUrl}/browse/${this.project}`,
-      jiraDetails: issues.map(issue => `- [${issue.key}: ${issue.summary}](${issue.url})`).join('\n')
+      sprintActionItems: this.generateSprintActionItems(
+        summary.issuesByStatus,
+        prData
+      ),
+      sprintRisks: this.generateSprintRisks(
+        summary.issuesByStatus,
+        daysRemaining
+      ),
+      jiraBoardUrl:
+        sprintData.boardUrl || `${this.baseUrl}/browse/${this.project}`,
+      jiraDetails: issues
+        .map((issue) => `- [${issue.key}: ${issue.summary}](${issue.url})`)
+        .join('\n'),
     };
   }
 
@@ -286,9 +300,14 @@ class JiraClient {
    * Calculate sprint progress percentage
    */
   calculateSprintProgress(issuesByStatus) {
-    const doneIssues = (issuesByStatus['Done'] || []).length + (issuesByStatus['Closed'] || []).length;
-    const totalIssues = Object.values(issuesByStatus).reduce((sum, issues) => sum + issues.length, 0);
-    
+    const doneIssues =
+      (issuesByStatus['Done'] || []).length +
+      (issuesByStatus['Closed'] || []).length;
+    const totalIssues = Object.values(issuesByStatus).reduce(
+      (sum, issues) => sum + issues.length,
+      0
+    );
+
     if (totalIssues === 0) return 0;
     return Math.round((doneIssues / totalIssues) * 100);
   }
@@ -298,12 +317,12 @@ class JiraClient {
    */
   calculateDaysRemaining(endDate) {
     if (!endDate) return 'Unknown';
-    
+
     const end = new Date(endDate);
     const now = new Date();
     const diffTime = end - now;
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
+
     if (diffDays < 0) return 'Sprint ended';
     if (diffDays === 0) return 'Last day';
     return `${diffDays} days`;
@@ -332,7 +351,7 @@ class JiraClient {
     const sections = [];
     Object.entries(issuesByStatus).forEach(([status, issues]) => {
       sections.push(`**${status}** (${issues.length})`);
-      issues.forEach(issue => {
+      issues.forEach((issue) => {
         sections.push(`- [${issue.key}](${issue.url}): ${issue.summary}`);
       });
       sections.push('');
@@ -345,13 +364,13 @@ class JiraClient {
    */
   formatIssuesByPriority(issues) {
     const priorityGroups = {
-      'High': [],
-      'Medium': [],
-      'Low': [],
-      'Unknown': []
+      High: [],
+      Medium: [],
+      Low: [],
+      Unknown: [],
     };
 
-    issues.forEach(issue => {
+    issues.forEach((issue) => {
       const priority = issue.priority || 'Unknown';
       if (priorityGroups[priority]) {
         priorityGroups[priority].push(issue);
@@ -364,7 +383,7 @@ class JiraClient {
     Object.entries(priorityGroups).forEach(([priority, priorityIssues]) => {
       if (priorityIssues.length > 0) {
         sections.push(`**${priority}** (${priorityIssues.length})`);
-        priorityIssues.forEach(issue => {
+        priorityIssues.forEach((issue) => {
           sections.push(`- [${issue.key}](${issue.url}): ${issue.summary}`);
         });
         sections.push('');
@@ -378,13 +397,15 @@ class JiraClient {
    * Format detailed issue information
    */
   formatIssueDetails(issues) {
-    return issues.map(issue => {
-      return `### ${issue.key}: ${issue.summary}
+    return issues
+      .map((issue) => {
+        return `### ${issue.key}: ${issue.summary}
 - **Status:** ${issue.status}
 - **Type:** ${issue.issueType}
 - **Assignee:** ${issue.assignee}
 - **URL:** ${issue.url}`;
-    }).join('\n\n');
+      })
+      .join('\n\n');
   }
 
   /**
@@ -399,19 +420,27 @@ class JiraClient {
     const done = (issuesByStatus['Done'] || []).length;
 
     if (todo > inProgress) {
-      actionItems.push('🚀 **Start more work** - More tickets in To Do than In Progress');
+      actionItems.push(
+        '🚀 **Start more work** - More tickets in To Do than In Progress'
+      );
     }
 
     if (inProgress > 5) {
-      actionItems.push('⚠️ **Focus on completion** - High number of items in progress');
+      actionItems.push(
+        '⚠️ **Focus on completion** - High number of items in progress'
+      );
     }
 
     if (prData && prData.openPRs > 0) {
-      actionItems.push(`📋 **Review PRs** - ${prData.openPRs} PRs awaiting review/merge`);
+      actionItems.push(
+        `📋 **Review PRs** - ${prData.openPRs} PRs awaiting review/merge`
+      );
     }
 
     if (actionItems.length === 0) {
-      actionItems.push('✅ **Sprint on track** - No critical action items identified');
+      actionItems.push(
+        '✅ **Sprint on track** - No critical action items identified'
+      );
     }
 
     return actionItems.join('\n\n');
@@ -430,7 +459,9 @@ class JiraClient {
     if (daysRemaining !== 'Unknown' && daysRemaining !== 'Sprint ended') {
       const daysNum = parseInt(daysRemaining);
       if (daysNum <= 2 && totalRemaining > 3) {
-        risks.push('🔴 **Sprint at risk** - High number of incomplete items with limited time');
+        risks.push(
+          '🔴 **Sprint at risk** - High number of incomplete items with limited time'
+        );
       } else if (daysNum <= 5 && totalRemaining > 10) {
         risks.push('🟡 **Sprint capacity concern** - May need to reduce scope');
       }
