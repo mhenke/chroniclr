@@ -78,7 +78,17 @@ jobs:
           script: |
             const discussionNumber = context.payload.discussion?.number || 
                                     context.payload.inputs?.discussion_number;
-            const sourceModules = context.payload.inputs?.source || 'discussion';
+            
+            // Auto-detect source modules based on provided inputs
+            let sourceModules = context.payload.inputs?.source;
+            if (!sourceModules) {
+              const sources = [];
+              if (discussionNumber) sources.push('discussion');
+              if (context.payload.inputs?.pr_numbers) sources.push('pr');
+              if (context.payload.inputs?.jira_keys) sources.push('jira');
+              if (context.payload.inputs?.issue_numbers) sources.push('issues');
+              sourceModules = sources.length > 0 ? sources.join(',') : 'discussion';
+            }
 
             // Only require discussion number if 'discussion' is in the source modules
             if (!discussionNumber && sourceModules.includes('discussion')) {
@@ -191,7 +201,17 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const sourceModules = context.payload.inputs?.source || 'discussion';
+            // Auto-detect source modules based on provided inputs
+            let sourceModules = context.payload.inputs?.source;
+            if (!sourceModules) {
+              const sources = [];
+              if (context.payload.inputs?.discussion_number) sources.push('discussion');
+              if (context.payload.inputs?.pr_numbers) sources.push('pr');
+              if (context.payload.inputs?.jira_keys) sources.push('jira');
+              if (context.payload.inputs?.issue_numbers) sources.push('issues');
+              sourceModules = sources.length > 0 ? sources.join(',') : 'discussion';
+            }
+            
             const prNumbers = context.payload.inputs?.pr_numbers;
             const issueNumbers = context.payload.inputs?.issue_numbers;
             const jiraKeys = context.payload.inputs?.jira_keys;
@@ -249,6 +269,8 @@ jobs:
             }
 
             core.info('✅ All specified resources validated successfully');
+            core.setOutput('source_modules', sourceModules);
+            core.info(`🔧 Auto-detected source modules: ${sourceModules}`);
 
       - name: Determine document types
         id: doc-types
@@ -268,7 +290,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DOC_TYPE: ${{ steps.doc-types.outputs.document_types }}
-          SOURCE_MODULES: ${{ github.event.inputs.source || 'discussion' }}
+          SOURCE_MODULES: ${{ steps.validate-resources.outputs.source_modules || github.event.inputs.source || 'jira' }}
           PR_NUMBERS: ${{ github.event.inputs.pr_numbers }}
           JIRA_KEYS: ${{ github.event.inputs.jira_keys }}
           # Jira API credentials
