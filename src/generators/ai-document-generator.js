@@ -124,6 +124,74 @@ class AIDocumentGenerator {
     return collectedData;
   }
 
+  /**
+   * Validate that we have actual data sources to prevent fabrication
+   */
+  validateDataSources(data) {
+    const sourceModules = (process.env.SOURCE_MODULES || 'discussion')
+      .split(',')
+      .map((s) => s.trim());
+
+    let hasValidData = false;
+    const validationResults = [];
+
+    // Check each enabled source module
+    for (const source of sourceModules) {
+      switch (source) {
+        case 'discussion':
+          if (data.discussion && data.discussion.number) {
+            hasValidData = true;
+            validationResults.push(`✅ Discussion #${data.discussion.number} found`);
+          } else {
+            validationResults.push(`❌ Discussion source enabled but no discussion data found`);
+          }
+          break;
+
+        case 'pr':
+          if (data.prs && data.prs.length > 0) {
+            hasValidData = true;
+            validationResults.push(`✅ ${data.prs.length} PR(s) found`);
+          } else {
+            validationResults.push(`❌ PR source enabled but no PR data found`);
+          }
+          break;
+
+        case 'jira':
+          if (data.jiraIssues && data.jiraIssues.length > 0) {
+            hasValidData = true;
+            validationResults.push(`✅ ${data.jiraIssues.length} Jira issue(s) found`);
+          } else {
+            validationResults.push(`❌ Jira source enabled but no Jira issues found`);
+          }
+          break;
+
+        case 'issues':
+          if (data.issues && data.issues.length > 0) {
+            hasValidData = true;
+            validationResults.push(`✅ ${data.issues.length} GitHub issue(s) found`);
+          } else {
+            validationResults.push(`❌ Issues source enabled but no GitHub issues found`);
+          }
+          break;
+      }
+    }
+
+    // Log validation results
+    core.info('📋 Data Source Validation:');
+    validationResults.forEach(result => core.info(result));
+
+    if (!hasValidData) {
+      core.error('🚫 PREVENTING FABRICATION: No valid data sources found. Will not generate documentation with fabricated content.');
+      core.error('💡 Suggestions:');
+      core.error('  - Verify Jira issue keys exist and are accessible');
+      core.error('  - Check GitHub PR/issue numbers are valid');  
+      core.error('  - Ensure discussion numbers exist');
+      core.error('  - Verify API credentials and permissions');
+    }
+
+    return hasValidData;
+  }
+
   async createAIPrompt(docType, data, template) {
     let prompt = `Create a ${docType} document with the following data:\n\n`;
 
@@ -258,6 +326,12 @@ class AIDocumentGenerator {
 
       // Collect data from enabled sources
       const data = await this.collectDataFromSources();
+
+      // Validate that we have actual data to work with
+      const hasValidData = this.validateDataSources(data);
+      if (!hasValidData) {
+        throw new Error('No valid data sources found. Cannot generate documentation without actual data to prevent fabrication.');
+      }
 
       // Generate documents with AI enhancement and template fallback
       const results = [];
