@@ -2,12 +2,7 @@ name: Chroniclr Documentation Generator
 
 run-name: >
   📚 ${{
-    github.event.inputs.manual_doc_type == 'release' && 'Release Documentation' ||
-    github.event.inputs.manual_doc_type == 'sprint-status' && 'Sprint Status Report' ||
-    github.event.inputs.manual_doc_type == 'pr-report' && 'PR Testing Report' ||
-    github.event.inputs.manual_doc_type == 'meeting-notes' && 'Meeting Notes' ||
-    github.event.inputs.manual_doc_type == 'initiative-brief' && 'Initiative Brief' ||
-    github.event.inputs.manual_doc_type == 'changelog' && 'Changelog' ||
+    (github.event.inputs.doc_type && format('Documentation ({0})', github.event.inputs.doc_type)) ||
     github.event.discussion.title ||
     github.event.inputs.discussion_number && 'Discussion Documentation' ||
     github.event.inputs.pr_numbers && 'PR Documentation' ||
@@ -259,11 +254,11 @@ jobs:
         id: doc-types
         env:
           DISCUSSION_LABELS: ${{ steps.discussion.outputs.labels }}
-          MANUAL_DOC_TYPE: ${{ github.event.inputs.doc_type }}
+          DOC_TYPE: ${{ github.event.inputs.doc_type }}
         run: |
-          if [ -n "$MANUAL_DOC_TYPE" ]; then
-            echo "Using manual document type: $MANUAL_DOC_TYPE"
-            echo "document_types=$MANUAL_DOC_TYPE" >> $GITHUB_OUTPUT
+          if [ -n "$DOC_TYPE" ]; then
+            echo "Using specified document type(s): $DOC_TYPE"
+            echo "document_types=$DOC_TYPE" >> $GITHUB_OUTPUT
           else
             echo "Processing labels to determine document types"
             npm run process-labels
@@ -358,12 +353,7 @@ jobs:
           commit-message: '📚 Generate documentation via Chroniclr [skip ci]'
           title: >
             📚 ${{
-              steps.doc-types.outputs.document_types == 'release' && 'Release Documentation' ||
-              steps.doc-types.outputs.document_types == 'sprint-status' && 'Sprint Status Report' ||
-              steps.doc-types.outputs.document_types == 'pr-report' && 'PR Testing Report' ||
-              steps.doc-types.outputs.document_types == 'meeting-notes' && 'Meeting Notes' ||
-              steps.doc-types.outputs.document_types == 'initiative-brief' && 'Initiative Brief' ||
-              steps.doc-types.outputs.document_types == 'changelog' && 'Changelog' ||
+              (steps.doc-types.outputs.document_types && format('Documentation ({0})', steps.doc-types.outputs.document_types)) ||
               steps.discussion.outputs.title ||
               (github.event.inputs.pr_numbers && 'PR Documentation') ||
               (github.event.inputs.jira_keys && 'Jira Documentation') ||

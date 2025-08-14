@@ -223,13 +223,37 @@ class AIDocumentGenerator {
   async generateDocument() {
     try {
       const docTypesString = process.env.DOC_TYPE || 'summary';
+      
+      // Support both comma and space separated document types
       const docTypes = docTypesString
-        .split(' ')
+        .split(/[,\s]+/)
         .map((type) => type.trim())
         .filter((type) => type);
 
+      // Validate document types against available templates
+      const validTypes = [];
+      const invalidTypes = [];
+      
+      for (const docType of docTypes) {
+        try {
+          await this.loadTemplate(docType);
+          validTypes.push(docType);
+        } catch (error) {
+          invalidTypes.push(docType);
+          core.warning(`⚠️ Skipping invalid document type: ${docType} (template not found)`);
+        }
+      }
+
+      if (invalidTypes.length > 0) {
+        core.warning(`❌ Invalid document types skipped: ${invalidTypes.join(', ')}`);
+      }
+
+      if (validTypes.length === 0) {
+        throw new Error('No valid document types provided. Available types: summary, sprint-status, pr-report, meeting-notes, initiative-brief, changelog, release');
+      }
+
       core.info(
-        `Generating ${docTypes.length} document types: ${docTypes.join(', ')}`
+        `Generating ${validTypes.length} document types: ${validTypes.join(', ')}`
       );
 
       // Collect data from enabled sources
@@ -237,7 +261,7 @@ class AIDocumentGenerator {
 
       // Generate documents with AI enhancement and template fallback
       const results = [];
-      for (const docType of docTypes) {
+      for (const docType of validTypes) {
         try {
           core.info(`Generating ${docType} document...`);
 
@@ -273,7 +297,7 @@ class AIDocumentGenerator {
         throw new Error('No documents were generated successfully');
       }
 
-      core.info(`✅ Generated ${results.length}/${docTypes.length} documents`);
+      core.info(`✅ Generated ${results.length}/${validTypes.length} documents`);
       return results;
     } catch (error) {
       core.error(`Document generation failed: ${error.message}`);
