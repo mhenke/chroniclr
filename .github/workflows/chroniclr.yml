@@ -28,10 +28,9 @@ on:
         required: false
         type: string
       source:
-        description: 'Data sources: discussion,pr,jira'
+        description: 'Data sources: discussion,pr,jira (auto-detected if not specified)'
         required: false
         type: string
-        default: 'discussion'
       pr_numbers:
         description: 'Pull request numbers (comma-separated, e.g., "123,456")'
         required: false
