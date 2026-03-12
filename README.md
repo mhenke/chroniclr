@@ -1,5 +1,7 @@
 # Chroniclr - AI-Powered Documentation Automation
 
+Inspired by GitHub's internal documentation automation Project Bloom, Chroniclr brings AI-powered project documentation to every team.
+
 > GitHub Actions-driven documentation generation from discussions, issues, PRs, and Jira. Simple setup, zero maintenance, focused on essential project documentation.
 
 ## Overview
